@@ -1,0 +1,3994 @@
+*----------------------------------------------------------------------*
+***INCLUDE ZPPR_PROCESSA_NECESSIDADE_MF01.
+*----------------------------------------------------------------------*
+
+*&---------------------------------------------------------------------*
+*&      Form  F_SELECIONA_NECESSIDADE
+*&---------------------------------------------------------------------*
+*       text***
+*----------------------------------------------------------------------*
+FORM f_seleciona_necessidade .
+
+  DATA: lit_mast TYPE TABLE OF mast,
+        lit_stpo TYPE TABLE OF stpo.
+
+  FIELD-SYMBOLS: <fs_zrnppt_prev>   TYPE zrnppt_prev,
+                 <fs_mara>          TYPE mara,
+                 <fs_marc>          TYPE marc,
+                 <fs_mast>          TYPE mast,
+                 <fs_stpo>          TYPE stpo,
+                 <fs_lista_tecnica> TYPE zqme_lista_tecnica.
+
+  DATA:
+    lv_is_34  TYPE abap_bool.
+
+  REFRESH: it_mp_falta,
+           it_mara,
+           it_marc,
+           it_lista_tecnica.
+
+  SELECT *
+    FROM zppt_mp_falta
+    INTO TABLE it_mp_falta
+    WHERE matnr IN s_matnr.
+
+  CHECK it_mp_falta[] IS NOT INITIAL.
+
+* Stefanini/Elaine Omine - PRJ1372 - 14/08/2023 - Início
+  DATA: vl_clabs TYPE zppt_oest-clabs.
+
+  SELECT * FROM zppt_oest
+    INTO TABLE @DATA(tl_zppt_oest).
+
+  SORT tl_zppt_oest BY werks matnr charg werks_apl matnr_apl.
+  DELETE ADJACENT DUPLICATES FROM tl_zppt_oest COMPARING werks matnr charg werks_apl matnr_apl.
+
+  LOOP AT it_mp_falta INTO DATA(wl_mp_falta).
+
+    DATA(vl_tabix) = sy-tabix.
+
+    CLEAR vl_clabs.
+
+    LOOP AT tl_zppt_oest INTO DATA(wl_zppt_oest) WHERE matnr EQ wl_mp_falta-matnr.
+      vl_clabs = vl_clabs + wl_zppt_oest-clabs.
+    ENDLOOP.
+
+    wl_mp_falta-bdmng = wl_mp_falta-bdmng - vl_clabs.
+
+    IF wl_mp_falta-bdmng LE 0.
+      DELETE it_mp_falta INDEX vl_tabix.
+    ENDIF.
+
+  ENDLOOP.
+* Stefanini/Elaine Omine - PRJ1372 - 14/08/2023 - Fim
+
+  SELECT stlty stlnr stlkn stpoz idnrk
+    FROM stpo
+    INTO CORRESPONDING FIELDS OF TABLE lit_stpo
+    FOR ALL ENTRIES IN it_mp_falta
+    WHERE idnrk EQ it_mp_falta-matnr
+      AND stlty EQ 'M'
+      AND kzkup EQ ''
+      AND lkenz EQ ''.
+  IF sy-subrc IS INITIAL.
+    SELECT matnr werks stlan stlnr stlal
+      FROM mast
+      INTO CORRESPONDING FIELDS OF TABLE lit_mast
+      FOR ALL ENTRIES IN lit_stpo
+      WHERE stlnr EQ lit_stpo-stlnr
+        AND stlan EQ '1'.
+
+    PERFORM f_seleciona_prev_demandas.
+
+    SORT lit_mast BY matnr werks.
+    SORT lit_stpo BY stlnr.
+    SORT it_zrnppt_prev BY matnr werks.
+
+    LOOP AT lit_mast ASSIGNING <fs_mast>.
+
+      IF p_gd EQ 'X'.
+        READ TABLE it_zrnppt_prev ASSIGNING <fs_zrnppt_prev>
+                                  WITH KEY matnr = <fs_mast>-matnr
+                                           werks = <fs_mast>-werks
+                                  BINARY SEARCH.
+        IF sy-subrc IS NOT INITIAL.
+          CONTINUE.
+        ENDIF.
+      ENDIF.
+
+      READ TABLE lit_stpo ASSIGNING <fs_stpo>
+                          WITH KEY stlnr = <fs_mast>-stlnr
+                                   BINARY SEARCH.
+      IF sy-subrc IS INITIAL.
+        INSERT INITIAL LINE INTO TABLE it_lista_tecnica ASSIGNING <fs_lista_tecnica>.
+        <fs_lista_tecnica>-werks  = <fs_mast>-werks.
+        <fs_lista_tecnica>-matnr  = <fs_mast>-matnr.
+        <fs_lista_tecnica>-idnrk  = <fs_stpo>-idnrk.
+      ENDIF.
+
+    ENDLOOP.
+
+    IF it_lista_tecnica[] IS NOT INITIAL.
+      SELECT matnr mtart
+        FROM mara
+        APPENDING CORRESPONDING FIELDS OF TABLE it_mara
+        FOR ALL ENTRIES IN it_lista_tecnica
+        WHERE matnr = it_lista_tecnica-matnr.
+    ENDIF.
+
+  ENDIF.
+
+**** Felipe Mattos - Inicio
+
+***  IF p_gd EQ 'X'.
+***
+***    IF lit_stpo IS NOT INITIAL.
+***
+***      SELECT stlty, stlnr, stlal, stlkn, stasz, datuv
+***        FROM stas
+***        INTO TABLE @DATA(tl_stas)
+***         FOR ALL ENTRIES IN @lit_stpo
+***       WHERE stlty EQ @lit_stpo-stlty
+***         AND stlnr EQ @lit_stpo-stlnr
+***         AND stlkn EQ @lit_stpo-stlkn.
+***      IF sy-subrc EQ 0.
+***        SORT tl_stas BY stlty stlnr stlkn datuv DESCENDING.
+***        DELETE ADJACENT DUPLICATES FROM tl_stas COMPARING stlty stlnr stlkn .
+***        SELECT matnr, werks, stlan, stlnr, stlal
+***          FROM mast
+***          INTO TABLE @DATA(tl_mast)
+***           FOR ALL ENTRIES IN @tl_stas
+***         WHERE stlnr EQ @tl_stas-stlnr
+***           AND stlal EQ @tl_stas-stlal.
+***      ENDIF.
+***    ENDIF.
+***    DATA(tl_mast_54) = tl_mast.
+***    DELETE tl_mast_54 WHERE matnr NP '54*'.
+***    IF tl_mast_54 IS NOT INITIAL.
+***      SELECT stlty, stlnr, stlkn, stpoz, datuv, idnrk
+***        FROM stpo
+***        INTO TABLE @DATA(tl_stpo_2)
+***         FOR ALL ENTRIES IN @tl_mast_54
+***       WHERE idnrk EQ @tl_mast_54-matnr.
+***      IF sy-subrc EQ 0.
+***        SORT tl_stpo_2 BY idnrk datuv DESCENDING.
+***        DELETE ADJACENT DUPLICATES FROM tl_stpo_2 COMPARING idnrk.
+***
+***        SELECT stlty, stlnr, stlal, stlkn, stasz, datuv
+***          FROM stas
+***          INTO TABLE @DATA(tl_stas_2)
+***           FOR ALL ENTRIES IN @tl_stpo_2
+***         WHERE stlty EQ @tl_stpo_2-stlty
+***           AND stlnr EQ @tl_stpo_2-stlnr
+***           AND stlkn EQ @tl_stpo_2-stlkn.
+***        IF sy-subrc EQ 0.
+***          SORT tl_stas_2 BY stlty stlnr stlkn datuv DESCENDING.
+***          DELETE ADJACENT DUPLICATES FROM tl_stas_2 COMPARING stlty stlnr stlkn .
+***
+***          SELECT matnr, werks, stlan, stlnr, stlal
+***            FROM mast
+***            INTO TABLE @DATA(tl_mast_2)
+***             FOR ALL ENTRIES IN @tl_stas_2
+***           WHERE stlnr EQ @tl_stas_2-stlnr
+***             AND stlal EQ @tl_stas_2-stlal.
+***        ENDIF.
+***      ENDIF.
+***    ENDIF.
+***
+***    PERFORM f_seleciona_prev_demandas.
+***
+***    SORT: lit_stpo  BY idnrk,
+***          tl_stas   BY stlty stlnr stlkn,
+***          tl_mast   BY stlnr stlal werks,
+***          tl_stpo_2 BY idnrk,
+***          tl_stas_2 BY stlty stlnr stlkn,
+***          tl_mast_2 BY stlnr stlal werks.
+***
+***    DATA: vl_tem_demanda TYPE c.
+***
+***    SORT it_zrnppt_prev  BY matnr werks.
+***
+***    LOOP AT lit_mast ASSIGNING <fs_mast>.
+***
+***      IF <fs_mast>-matnr BETWEEN '34000000' AND '34999999'.
+***        Só são considerados materiais que possuem demanda
+***        READ TABLE it_zrnppt_prev TRANSPORTING NO FIELDS WITH KEY matnr = <fs_mast>-matnr
+***                                                                  werks = <fs_mast>-werks
+***                                                                  BINARY SEARCH.
+***        IF sy-subrc NE 0. "Se não encontrou registro com peso > 0
+***          DELETE lit_mast WHERE matnr EQ <fs_mast>-matnr
+***                            AND werks EQ <fs_mast>-werks.
+***        ENDIF.
+***      ELSEIF <fs_mast>-matnr BETWEEN '54000000' AND '54999999'.
+***        CLEAR vl_tem_demanda.
+***        LOOP AT lit_stpo INTO DATA(wl_stpo_d) WHERE idnrk = <fs_mast>-matnr.
+***          READ TABLE tl_stas INTO DATA(wl_stas_d) WITH KEY stlty = wl_stpo_d-stlty
+***                                                             stlnr = wl_stpo_d-stlnr
+***                                                             stlkn = wl_stpo_d-stlkn BINARY SEARCH.
+***          IF sy-subrc EQ 0.
+***            READ TABLE tl_mast INTO DATA(wl_mast_d) WITH KEY stlnr = wl_stas_d-stlnr
+***                                                             stlal = wl_stas_d-stlal
+***                                                             werks = <fs_mast>-werks BINARY SEARCH.
+***            IF sy-subrc EQ 0 AND wl_mast_d-matnr BETWEEN '34000000' AND '34999999'.
+***              Só são considerados materiais que possuem demanda
+***              READ TABLE it_zrnppt_prev TRANSPORTING NO FIELDS WITH KEY matnr = wl_mast_d-matnr
+***                                                                        werks = <fs_mast>-werks BINARY SEARCH.
+***              IF sy-subrc EQ 0. "Se encontrou registro com peso > 0
+***                vl_tem_demanda = abap_true.
+***              ENDIF.
+***            ENDIF.
+***          ENDIF.
+***        ENDLOOP.
+***        IF vl_tem_demanda IS INITIAL. "Se não encontrou registro com peso > 0
+***          DELETE lit_mast WHERE matnr EQ <fs_mast>-matnr
+***                            AND werks EQ <fs_mast>-werks.
+***        ENDIF.
+***      ELSEIF <fs_mast>-matnr BETWEEN '12000000' AND '12999999'.
+***        CLEAR vl_tem_demanda.
+***        LOOP AT lit_stpo INTO wl_stpo_d WHERE idnrk = <fs_mast>-matnr.
+***          READ TABLE tl_stas INTO wl_stas_d WITH KEY stlty = wl_stpo_d-stlty
+***                                                       stlnr = wl_stpo_d-stlnr
+***                                                       stlkn = wl_stpo_d-stlkn BINARY SEARCH.
+***          IF sy-subrc EQ 0.
+***            READ TABLE tl_mast INTO wl_mast_d WITH KEY stlnr = wl_stas_d-stlnr
+***                                                       stlal = wl_stas_d-stlal
+***                                                       werks = <fs_mast>-werks BINARY SEARCH.
+***            IF sy-subrc EQ 0 AND wl_mast_d-matnr BETWEEN '54000000' AND '54999999'.
+***              LOOP AT tl_stpo_2 INTO DATA(wl_stpo_d2) WHERE idnrk = wl_mast_d-matnr.
+***                READ TABLE tl_stas_2 INTO DATA(wl_stas_d2) WITH KEY stlty = wl_stpo_d2-stlty
+***                                                                     stlnr = wl_stpo_d2-stlnr
+***                                                                     stlkn = wl_stpo_d2-stlkn BINARY SEARCH.
+***                IF sy-subrc EQ 0.
+***                  READ TABLE tl_mast_2 INTO DATA(wl_mast_d2) WITH KEY stlnr = wl_stas_d2-stlnr
+***                                                                      stlal = wl_stas_d2-stlal
+***                                                                      werks = <fs_mast>-werks BINARY SEARCH.
+***                  IF sy-subrc EQ 0 AND wl_mast_d2-matnr BETWEEN '34000000' AND '34999999'.
+***                    Só são considerados materiais que possuem demanda
+***                    READ TABLE it_zrnppt_prev TRANSPORTING NO FIELDS WITH KEY matnr = wl_mast_d2-matnr
+***                                                                              werks = <fs_mast>-werks BINARY SEARCH.
+***                    IF sy-subrc EQ 0. "Se encontrou registro com peso > 0
+***                      vl_tem_demanda = abap_true.
+***                      EXIT.
+***                    ENDIF.
+***                  ENDIF.
+***                ENDIF.
+***              ENDLOOP.
+***              CHECK vl_tem_demanda IS INITIAL.
+***            ENDIF.
+***          ENDIF.
+***        ENDLOOP.
+***        IF vl_tem_demanda IS INITIAL. "Se não encontrou registro com peso > 0
+***          DELETE lit_mast WHERE matnr EQ <fs_mast>-matnr
+***                            AND werks EQ <fs_mast>-werks.
+***        ENDIF.
+***      ENDIF.
+***
+***    ENDLOOP.
+***
+***  ENDIF.
+
+*  SORT lit_stpo BY stlnr.
+
+*  LOOP AT lit_mast ASSIGNING <fs_mast>.
+*    READ TABLE lit_stpo ASSIGNING <fs_stpo>
+*                        WITH KEY stlnr = <fs_mast>-stlnr
+*                                 BINARY SEARCH.
+*    IF sy-subrc IS INITIAL.
+*      INSERT INITIAL LINE INTO TABLE it_lista_tecnica ASSIGNING <fs_lista_tecnica>.
+*      <fs_lista_tecnica>-werks  = <fs_mast>-werks.
+*      <fs_lista_tecnica>-matnr  = <fs_mast>-matnr.
+*      <fs_lista_tecnica>-idnrk  = <fs_stpo>-idnrk.
+*    ENDIF.
+*  ENDLOOP.
+
+*  IF it_lista_tecnica[] IS NOT INITIAL.
+*    SELECT matnr mtart
+*      FROM mara
+*      APPENDING CORRESPONDING FIELDS OF TABLE it_mara
+*      FOR ALL ENTRIES IN it_lista_tecnica
+*      WHERE matnr = it_lista_tecnica-matnr.
+*  ENDIF.
+
+**** Felipe Mattos - Fim
+
+  IF it_mara[] IS NOT INITIAL.
+    SELECT matnr werks strgr lgpro
+     FROM marc
+     INTO CORRESPONDING FIELDS OF TABLE it_marc
+*    Stefanini/Elaine Omine - PRJ1372 - 03/08/2023 - Início
+*     FOR ALL ENTRIES IN it_mara
+*     WHERE matnr EQ it_mara-matnr
+*       AND werks IN s_werks.
+     FOR ALL ENTRIES IN it_lista_tecnica
+     WHERE matnr EQ it_lista_tecnica-matnr
+       AND werks EQ it_lista_tecnica-werks.
+*    Stefanini/Elaine Omine - PRJ1372 - 03/08/2023 - Fim
+
+*PM - Capabilidade - PRJ1372 - 15.03.2022
+    IF it_marc[] IS NOT INITIAL.
+
+      SELECT *
+        FROM ztmmsu_controle
+        INTO TABLE it_ztmmsu_controle
+        FOR ALL ENTRIES IN it_marc
+        WHERE werks = it_marc-werks
+          AND lgort = it_marc-lgpro.
+
+      SELECT *
+        FROM zppt_restr_entr
+        INTO TABLE it_zppt_restr_entr.
+
+      SELECT *
+        FROM zqmt_restr_equip
+        INTO TABLE it_zqmt_restr_equip.
+
+      SELECT *
+        FROM zppt_restr_eqp_t
+        INTO TABLE it_zppt_restr_eqp_t.
+
+      SELECT *
+        FROM zppt_restr_eqp_l
+        INTO TABLE it_zppt_restr_eqp_l.
+
+      SELECT *
+        FROM zppt_restr_eqp_p
+        INTO TABLE it_zppt_restr_eqp_p.
+
+*      SELECT *
+*        FROM zrnppt_prev
+*        INTO TABLE it_zrnppt_prev_capa
+*        FOR ALL ENTRIES IN it_marc
+*        WHERE matnr = it_marc-matnr.
+*
+*      DELETE it_zrnppt_prev_capa WHERE ano >= sy-datum(4)
+*                                   AND mes >= sy-datum+4(2).
+
+      SELECT *
+        FROM zqmt_restr_cli
+        INTO TABLE it_zqmt_restr_cli.
+
+      SELECT *
+        FROM zqmt_partnumber
+        INTO TABLE it_zqmt_partnumber
+        FOR ALL ENTRIES IN it_marc
+        WHERE matnr_antigo = it_marc-matnr
+          AND status IN ('LIB', 'LIR').
+
+      IF sy-subrc IS INITIAL.
+        it_zqmt_partnumber_aux[] = it_zqmt_partnumber[].
+        SORT it_zqmt_partnumber_aux BY partnumber.
+        DELETE ADJACENT DUPLICATES FROM it_zqmt_partnumber_aux COMPARING partnumber.
+
+        SELECT *
+          FROM zqmt_partnumber
+          INTO TABLE it_zqmt_partnumber_pn
+          FOR ALL ENTRIES IN it_zqmt_partnumber_aux
+          WHERE partnumber = it_zqmt_partnumber_aux-partnumber.
+      ENDIF.
+
+      it_marc_aux[] = it_marc[].
+      SORT it_marc_aux BY matnr.
+      DELETE it_marc_aux WHERE matnr NOT BETWEEN '34000000' AND '34999999'.
+
+      IF it_marc_aux[] IS NOT INITIAL.
+
+        SORT it_marc_aux BY matnr.
+        DELETE ADJACENT DUPLICATES FROM it_marc_aux COMPARING matnr.
+
+        SELECT t~werks, t~matnr, s~datuv, s~idnrk
+          FROM mast AS t
+          INNER JOIN stpo AS s
+          ON s~stlnr = t~stlnr
+          INTO TABLE @it_mast
+          FOR ALL ENTRIES IN @it_marc_aux
+          WHERE t~matnr = @it_marc_aux-matnr
+            AND t~werks IN @s_werks
+            AND t~stlan = '1'.
+
+        SORT it_mast BY idnrk.
+        DELETE it_mast WHERE idnrk NOT BETWEEN '54000000' AND '54999999'.
+        SORT it_mast BY idnrk ASCENDING werks ASCENDING datuv DESCENDING.
+
+        IF it_mast[] IS NOT INITIAL.
+
+          SELECT matnr mtart
+            FROM mara
+            INTO TABLE it_mtart_mast
+            FOR ALL ENTRIES IN it_mast
+            WHERE matnr = it_mast-idnrk.
+
+        ENDIF.
+
+      ENDIF.
+
+      SORT: it_ztmmsu_controle BY werks lgort,
+            it_zppt_restr_entr  BY lamin tipo_prod werks esp_ini esp_fin
+                                   larg_ini larg_fin diam_ext_ini diam_ext_fim
+                                   diam_int_ini diam_int_fim peso_max,
+            it_zqmt_restr_equip BY werks tp_produto,
+            it_zrnppt_prev_capa BY matnr,
+            it_zqmt_restr_cli   BY werks kunnr bloqueio matnr,
+            it_zqmt_partnumber_pn BY partnumber.
+
+    ENDIF.
+
+  ENDIF.
+
+  SELECT *
+   FROM zmmt_rest_qualid
+   INTO TABLE it_zmmt_rest_qualid.
+
+  SELECT *
+    FROM zmmt_rest_revest
+    INTO TABLE it_zmmt_rest_revest.
+
+  SORT : it_zmmt_rest_qualid BY tp_laminacao qualidades ind_produto,
+         it_zmmt_rest_revest BY tp_laminacao normarevest revestimento.
+*PM - Capabilidade - PRJ1372 - 15.03.2022
+
+  FREE: lit_mast, lit_stpo.
+
+ENDFORM.                    " F_SELECIONA_NECESSIDADE
+
+*&---------------------------------------------------------------------*
+*&      Form  f_carrega_resultado_job_nec
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*FORM f_carrega_resultado_job_nec  USING p_uname.
+*
+*  DATA: lit_zppt_pajt TYPE TABLE OF zppt_pajt,
+*        lwa_zppt_pajt TYPE zppt_pajt.
+*
+*  DATA: lit_marc TYPE TABLE OF marc,
+*        lwa_marc TYPE marc.
+*
+*  DATA: lit_zppt_gi TYPE TABLE OF zppt_gi,
+*        lwa_zppt_gi TYPE zppt_gi.
+*
+*  DATA: lv_restrito                 TYPE c.
+*
+*  SELECT *
+*    FROM zppt_pajt
+*    INTO TABLE lit_zppt_pajt
+*    WHERE cprog IN ('ZPPR_PROCESSA_NECESSIDADE_MP','ZSUPPR_PROCESSA_SOLICITACAO_MP' )
+**    WHERE cprog EQ sy-cprog
+*      AND ernam NE 'JOBTNG1'.
+**      AND ernam EQ p_uname.
+*
+*  IF lit_zppt_pajt[] IS NOT INITIAL.
+*    SELECT matnr werks lgpro
+*      FROM marc
+*      INTO CORRESPONDING FIELDS OF TABLE lit_marc
+*      FOR ALL ENTRIES IN lit_zppt_pajt
+*      WHERE matnr = lit_zppt_pajt-matnr_apl
+*        AND werks = lit_zppt_pajt-werks_apl.
+*    SORT lit_marc BY matnr werks.
+*  ENDIF.
+*
+*  SELECT *
+*    FROM zppt_gi
+*    INTO TABLE lit_zppt_gi.
+*  SORT lit_zppt_gi BY matnr.
+*
+*  REFRESH gt_outtab1.
+*
+*  LOOP AT lit_zppt_pajt INTO lwa_zppt_pajt.
+*    MOVE-CORRESPONDING lwa_zppt_pajt TO wa_outtab.
+*
+*    IF wa_outtab-lgort_apl IS INITIAL.
+*      READ TABLE lit_marc INTO lwa_marc WITH KEY matnr = lwa_zppt_pajt-matnr_apl
+*                                                 werks = lwa_zppt_pajt-werks_apl
+*                                                 BINARY SEARCH.
+*      IF sy-subrc IS INITIAL.
+*        wa_outtab-lgort_apl = lwa_marc-lgpro.
+*      ENDIF.
+*    ENDIF.
+*
+*    READ TABLE lit_zppt_gi INTO lwa_zppt_gi WITH KEY matnr = lwa_zppt_pajt-idnrk_apl
+*                                            BINARY SEARCH.
+*    IF sy-subrc IS INITIAL.
+*      wa_outtab-necessidade_mp = lwa_zppt_gi-necessidade.
+*    ENDIF.
+*
+*    IF wa_outtab-log IS INITIAL.
+*      APPEND wa_outtab TO gt_outtab1.
+*    ELSE.
+*
+*      IF wa_outtab-tpmesag = '2'.
+*
+*        IF wa_outtab-xloek EQ 'E'.
+*          wa_outtab-statustxt = 'CAPABILIDADE'.
+*          wa_outtab-icon_stt  = icon_yellow_light.
+*        ELSEIF wa_outtab-xloek EQ 'C'.
+*          wa_outtab-statustxt = 'CAPABILIDADE'.
+*          wa_outtab-icon_stt  = icon_yellow_light.
+*        ELSEIF wa_outtab-xloek EQ 'M'.
+*          wa_outtab-statustxt = 'CONSULTA'.
+*          wa_outtab-icon_stt  = icon_yellow_light.
+*        ELSEIF wa_outtab-xloek EQ 'R'.
+*          wa_outtab-statustxt = 'CAPABILIDADE'.
+*          wa_outtab-icon_stt  = icon_yellow_light.
+*        ELSEIF wa_outtab-xloek EQ 'A'.
+*          wa_outtab-statustxt = 'CERTIFICADO'.
+*          wa_outtab-icon_stt  = icon_yellow_light.
+*        ENDIF.
+*
+*        APPEND wa_outtab TO gt_outtab2.
+*      ELSEIF wa_outtab-tpmesag = '3'.
+*        APPEND wa_outtab TO gt_outtab3.
+*      ENDIF.
+*
+*    ENDIF.
+*
+*    CLEAR wa_outtab.
+*  ENDLOOP.
+*
+*ENDFORM.                    " F_CARREGA_RESULTADO_JOB
+
+*&---------------------------------------------------------------------*
+*&      Form  F_SELECIONA_LOTES_APLICACAO
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM f_seleciona_lotes_aplicacao .
+
+  REFRESH:  it_mchbcar,
+            it_lista_alt,
+            it_lta_reprov.
+*            it_grupo_he04.
+
+*  SELECT *
+*    INTO TABLE it_grupo_he04
+*    FROM zppt_grupo_he04.
+
+  SELECT l~matnr l~werks l~lgort l~charg l~clabs l~ersda m~hierarq_04
+    INTO CORRESPONDING FIELDS OF TABLE it_mchbcar
+    FROM zppt_lotes_aplic AS l
+    INNER JOIN zppt_mchb_caract AS m
+            ON l~matnr = m~matnr
+           AND l~charg = m~charg
+    WHERE l~charg IN s_charg.
+
+* Stefanini/Elaine Omine - PRJ1372 - 11/08/2023 - Início
+  SELECT *
+    FROM zppt_oest
+    INTO TABLE @DATA(tl_oest).
+  IF sy-subrc EQ 0 AND it_mchbcar IS NOT INITIAL.
+    SORT tl_oest BY werks matnr charg.
+    DELETE ADJACENT DUPLICATES FROM tl_oest COMPARING werks matnr charg.
+    LOOP AT tl_oest INTO DATA(wl_oest).
+      DELETE it_mchbcar WHERE werks = wl_oest-werks
+                          AND matnr = wl_oest-matnr
+                          AND charg = wl_oest-charg.
+    ENDLOOP.
+  ENDIF.
+* Stefanini/Elaine Omine - PRJ1372 - 11/08/2023 - Início
+
+  IF it_mchbcar[] IS NOT INITIAL.
+
+    SELECT werks matnr charg matnr_pa
+      INTO TABLE it_lista_alt
+      FROM zsuppt_lista_alt
+      FOR ALL ENTRIES IN it_mchbcar
+      WHERE matnr       EQ it_mchbcar-matnr
+        AND charg       EQ it_mchbcar-charg
+        AND desativada  EQ ''.
+
+    SELECT *
+      INTO TABLE it_lta_reprov
+      FROM zppt_lta_reprov
+      FOR ALL ENTRIES IN it_mchbcar
+      WHERE idnrk EQ it_mchbcar-matnr
+        AND charg EQ it_mchbcar-charg.
+  ENDIF.
+
+ENDFORM.                    " F_SELECIONA_LOTES_APLICACAO
+
+*&---------------------------------------------------------------------*
+*&      Form  F_ANALISE_ESTOQUE_EXCESSO
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM f_analise_estoque_excesso .
+
+  DATA: BEGIN OF lit_rank_prioridade OCCURS 0,
+          werks TYPE marc-werks,
+          matnr TYPE marc-matnr,
+          idnrk TYPE stpo-idnrk,
+*          rankm TYPE zppt_mp_falta-rankm,
+          rpdse TYPE zppt_mp_falta-rpdse,
+          giroe TYPE zppt_mp_falta-giroe,
+          pltes TYPE zppt_mp_falta-pltes,
+        END OF lit_rank_prioridade.
+
+  DATA: BEGIN OF lit_log_pe OCCURS 0,
+          idnrk TYPE stpo-idnrk,
+          matnr TYPE mchb-matnr,
+          charg TYPE mchb-charg,
+          resul TYPE char03,
+        END OF lit_log_pe.
+
+  DATA: lit_cdqua_faixa             TYPE TABLE OF zqmt_cdqua_faixa.
+
+  DATA: lit_result TYPE TABLE OF ty_result,
+        lit_makt   TYPE TABLE OF makt,
+        lit_lfa1   TYPE TABLE OF lfa1.
+
+  DATA: lwa_caract_matnr LIKE LINE OF it_caract_matnr,
+        lwa_caract_charg LIKE LINE OF it_caract_charg.
+
+  DATA: lv_matnr_laminacao             TYPE atwtb,
+        lv_charg_laminacao             TYPE atwtb,
+        lv_matnr_produto               TYPE atwtb,
+        lv_charg_produto               TYPE atwtb,
+        lv_matnr_mm_pos_tratamento     TYPE atwrt,
+        lv_charg_mm_pos_tratamento     TYPE atwrt,
+        lv_matnr_qualidade             TYPE atwrt,
+        lv_charg_qualidade             TYPE atwrt,
+        lv_qualidade                   TYPE ze_qualidades,
+        lv_lines                       TYPE i,
+        lv_matches                     TYPE c,
+        lv_date_ini                    TYPE sy-datum,
+        lv_time_ini                    TYPE sy-uzeit,
+        lv_diff                        TYPE tvro-fahztd,
+        lv_ano                         TYPE n LENGTH 4,
+        lv_mes                         TYPE n LENGTH 2,
+        lv_consistencia_toyota         TYPE c,
+        lv_consistencia_cdqua          TYPE c,
+*       Stefanini/Elaine Omine - PRJ1372 - 27/07/2023 - Início
+*        lv_charg_sd_diametro_interno   TYPE atflv,
+*        lv_charg_sd_diametro_externo   TYPE atflv,
+        lv_charg_pdr_consulta_metal    TYPE atwrt,
+        lv_matnr_pdr_consulta_metal    TYPE atwrt,
+        lv_matnr_sd_hierarquia_produto TYPE atwrt,
+        lv_matnr_sd_diam_int_minimo    TYPE atflv,
+        lv_matnr_sd_diam_int_maximo    TYPE atflv,
+        lv_matnr_sd_diam_ext_minimo    TYPE atflv,
+        lv_matnr_sd_diam_ext_maximo    TYPE atflv,
+        lv_matnr_sd_lim_res_minima     TYPE atflv,
+        lv_matnr_sd_lim_res_maxima     TYPE atflv,
+        lv_matnr_sd_espessura          TYPE atflv,
+        lv_matnr_sd_largura            TYPE atflv,
+        lv_matnr_sd_comprimento        TYPE atflv,
+        lv_alternativo                 TYPE flag.
+*        lv_charg_sd_lim_resistencia    TYPE atflv,
+*        lv_charg_comp                  TYPE atflv.
+*       Stefanini/Elaine Omine - PRJ1372 - 27/07/2023 - Fim
+
+*RDM 260283
+  DATA: lv_tipo_certificado         TYPE vbap-mvgr1.
+*RDM 260283
+
+  DATA: lv_charg_cnt         TYPE i,
+        lv_matnr_cnt         TYPE i,
+        lv_charg_cnt_str(10) TYPE c,
+        lv_matnr_cnt_str(10) TYPE c,
+        lv_charg_devc(100)   TYPE c,
+        lv_result            TYPE c.
+
+*RDM 315265
+  DATA: lv_restrito TYPE c,
+        lv_tabix    TYPE sy-tabix.
+*RDM 315265
+
+  FIELD-SYMBOLS: <fs_cdqua_faixa>     TYPE zqmt_cdqua_faixa,
+                 <fs_mp_falta>        TYPE zppt_mp_falta,
+                 <fs_marc>            TYPE marc,
+                 <fs_rank_prioridade> LIKE LINE OF lit_rank_prioridade,
+                 <fs_makt>            LIKE LINE OF lit_makt,
+                 <fs_lfa1>            LIKE LINE OF lit_lfa1,
+                 <fs_result>          TYPE ty_result,
+                 <fs_lista_tecnica>   TYPE ty_lista_tecnica,
+                 <fs_zrnppt_prev>     TYPE zrnppt_prev,
+                 <fs_lista_alt>       TYPE zsuppt_lista_alt,
+                 <fs_caract_charg>    LIKE LINE OF it_caract_charg,
+                 <fs_caract_matnr>    LIKE LINE OF it_caract_matnr,
+                 <fs_mslb>            TYPE mslb.
+
+  REFRESH: it_result.
+
+  SORT it_mp_falta BY matnr.
+  SORT it_mchbcar BY ersda.
+  SORT it_zrnppt_prev BY werks matnr.
+  SORT it_mara BY matnr.
+  SORT it_lista_tecnica BY werks matnr.
+  SORT it_lta_reprov BY matnr idnrk charg.
+  SORT it_inspecao_mp BY inspecao.
+  SORT it_caract_charg BY matnr charg atnam.
+  SORT it_caract_matnr BY matnr atnam.
+  SORT it_mslb BY matnr charg.
+  SORT it_laminacao_nova BY matnr.
+  SORT it_vsamp_pa BY nr_lote.
+* Stefanini/Elaine Omine - 19/07/2023 - Início
+  SORT it_marc BY werks matnr.
+* Stefanini/Elaine Omine - 19/07/2023 - Fim
+
+*PM - Capabilidade - PRJ1372 - 15.03.2022
+  SORT it_resb_231 BY werks matnr charg lgort.
+  SORT it_resb_261 BY werks matnr charg lgort.
+  SORT it_resb_bext BY matnr charg.
+  SORT it_lista_alt BY matnr charg.
+*PM - Capabilidade - PRJ1372 - 15.03.2022
+
+  SELECT *
+    INTO TABLE lit_cdqua_faixa
+    FROM zqmt_cdqua_faixa.
+  SORT lit_cdqua_faixa BY cod_qual laminacao.
+
+  LOOP AT it_marc ASSIGNING <fs_marc>.
+    READ TABLE it_lista_tecnica ASSIGNING <fs_lista_tecnica> WITH KEY werks = <fs_marc>-werks
+                                                                      matnr = <fs_marc>-matnr
+                                                                      BINARY SEARCH.
+    IF sy-subrc IS INITIAL.
+      READ TABLE it_mp_falta ASSIGNING <fs_mp_falta> WITH KEY matnr = <fs_lista_tecnica>-idnrk
+                                                              BINARY SEARCH.
+      IF sy-subrc IS INITIAL.
+        INSERT INITIAL LINE INTO TABLE lit_rank_prioridade ASSIGNING <fs_rank_prioridade>.
+        <fs_rank_prioridade>-werks  = <fs_marc>-werks.
+        <fs_rank_prioridade>-matnr  = <fs_marc>-matnr.
+        <fs_rank_prioridade>-idnrk  = <fs_lista_tecnica>-idnrk.
+*        <fs_rank_prioridade>-rankm  = <fs_mp_falta>-rankm.
+        <fs_rank_prioridade>-rpdse  = <fs_mp_falta>-rpdse.
+        <fs_rank_prioridade>-giroe  = <fs_mp_falta>-giroe.
+        <fs_rank_prioridade>-pltes  = <fs_mp_falta>-pltes.
+      ENDIF.
+    ENDIF.
+  ENDLOOP.
+*  SORT lit_rank_prioridade BY rankm DESCENDING.
+
+  "Priorização da aplicação dos SKUs:
+  "1. Materiais com demanda e sem estoque
+  "2. MP com maior giro de estoque (quanto menor o resultado, é mais rapido o consumo)
+  "3. MP de menor politica de estoque
+  SORT it_mp_falta BY rpdse DESCENDING giroe DESCENDING pltes DESCENDING.
+  SORT lit_rank_prioridade BY rpdse DESCENDING giroe DESCENDING pltes DESCENDING.
+
+  " Total de Lotes
+  lv_charg_cnt = lines( it_mchbcar ).
+  lv_charg_cnt_str = lv_charg_cnt.
+  CONDENSE lv_charg_cnt_str.
+
+  " Total de SKUs
+  lv_matnr_cnt = lines( it_marc ).
+  lv_matnr_cnt_str = lv_matnr_cnt.
+  CONDENSE lv_matnr_cnt_str.
+
+  CONCATENATE 'Buscando aplicação para' lv_charg_cnt_str 'lote(s) em' lv_matnr_cnt_str 'SKU(s)' INTO lv_charg_devc SEPARATED BY space.
+  cl_progress_indicator=>progress_indicate(
+    i_text = lv_charg_devc
+    i_output_immediately = abap_true ).
+
+  lv_date_ini = sy-datum.
+  lv_time_ini = sy-uzeit.
+
+  LOOP AT it_mp_falta INTO wa_mp_falta.
+
+    LOOP AT lit_rank_prioridade WHERE idnrk = wa_mp_falta-matnr.
+
+      READ TABLE it_marc INTO wa_marc WITH KEY werks = lit_rank_prioridade-werks
+                                               matnr = lit_rank_prioridade-matnr
+*                                              Stefanini/Elaine Omine - 19/07/2023 - Início
+                                               BINARY SEARCH.
+*                                              Stefanini/Elaine Omine - 19/07/2023 - Fim
+      IF sy-subrc IS NOT INITIAL.
+        CONTINUE.
+      ENDIF.
+
+      READ TABLE it_mara INTO wa_mara WITH KEY matnr = wa_marc-matnr
+                                      BINARY SEARCH.
+      IF sy-subrc IS NOT INITIAL.
+        CONTINUE.
+      ENDIF.
+
+      "Descartar: Se SKU em analise não tiver demanda
+*** Felipe Mattos -  S 5000000758: PP - PRJ1372 - DEM6116 - Início
+*      IF p_gd = 'X'.
+*        READ TABLE it_zrnppt_prev WITH KEY werks = wa_marc-werks
+*                                           matnr = wa_marc-matnr
+*                                           BINARY SEARCH
+*                                           INTO wa_zrnppt_prev.
+*        IF sy-subrc IS NOT INITIAL.
+*          CONTINUE.
+*        ENDIF.
+*      ENDIF.
+*** Felipe Mattos -  S 5000000758: PP - PRJ1372 - DEM6116 - Fim
+
+      READ TABLE it_lista_tecnica WITH KEY werks = wa_marc-werks
+                                           matnr = wa_marc-matnr
+                                           INTO wa_lista_tecnica
+                                           BINARY SEARCH.
+      IF sy-subrc IS NOT INITIAL.
+        CONTINUE.
+      ENDIF.
+
+
+      CLEAR: lwa_caract_matnr.
+      READ TABLE it_caract_matnr WITH KEY matnr = wa_marc-matnr
+                                          atnam = 'HIERARQ_04'
+                                          BINARY SEARCH
+                                          INTO lwa_caract_matnr TRANSPORTING atwtb.
+      lv_matnr_laminacao = lwa_caract_matnr-atwtb.
+
+
+      CLEAR: lwa_caract_matnr.
+      READ TABLE it_caract_matnr WITH KEY matnr = wa_marc-matnr
+                                          atnam = 'HIERARQ_05'
+                                          BINARY SEARCH
+                                          INTO lwa_caract_matnr TRANSPORTING atwtb.
+      lv_matnr_produto = lwa_caract_matnr-atwtb.
+
+
+      CLEAR: lwa_caract_matnr.
+      READ TABLE it_caract_matnr WITH KEY matnr = wa_marc-matnr
+                                          atnam = 'MM_POS_TRATAMENTO'
+                                          BINARY SEARCH
+                                          INTO lwa_caract_matnr TRANSPORTING atwrt.
+      lv_matnr_mm_pos_tratamento = lwa_caract_matnr-atwrt.
+
+* INICIO: 11Jul2024 - RDM 314427 - RGC8096
+      READ TABLE it_caract_matnr WITH KEY matnr = wa_marc-matnr
+                                          atnam = 'MM_OLEAMENTO'
+                                          BINARY SEARCH
+                                          INTO lwa_caract_matnr TRANSPORTING atwrt.
+
+      IF sy-subrc EQ 0.
+
+        DATA(lv_matnr_oleamento) = lwa_caract_matnr-atwrt.
+
+      ENDIF.
+
+*      READ TABLE it_caract_matnr WITH KEY matnr = wa_marc-matnr
+*                                          atnam = 'MM_NIVEL_OLEAMENTO'
+*                                          BINARY SEARCH
+*                                          INTO lwa_caract_matnr TRANSPORTING atwrt.
+*
+*      IF sy-subrc EQ 0.
+*
+*        DATA(lv_matnr_nivel_oleamento) = lwa_caract_matnr-atwrt.
+*
+*      ENDIF.
+
+      READ TABLE it_caract_matnr WITH KEY matnr = wa_marc-matnr
+                                          atnam = 'MM_PECA_SEGURANCA'
+                                          BINARY SEARCH
+                                          INTO lwa_caract_matnr TRANSPORTING atwrt.
+
+      IF sy-subrc EQ 0.
+
+        DATA(lv_matnr_pc_seguranca) = lwa_caract_matnr-atwrt.
+
+      ENDIF.
+* FIM: 11Jul2024 - RDM 314427 - RGC8096
+
+      CLEAR: lwa_caract_matnr.
+      READ TABLE it_caract_matnr WITH KEY matnr = wa_marc-matnr
+                                          atnam = 'SD_QUALIDADES'
+                                          BINARY SEARCH
+                                          INTO lwa_caract_matnr TRANSPORTING atwrt.
+      lv_matnr_qualidade = lwa_caract_matnr-atwrt.
+
+*     Stefanini/Elaine Omine - PRJ1372 - 03/08/2023 - Início
+      CLEAR lwa_caract_matnr.
+      READ TABLE it_caract_matnr WITH KEY matnr = wa_marc-matnr
+                                          atnam = 'PDR_CONSULTA_METALURGICA'
+                                          BINARY SEARCH
+                                          INTO lwa_caract_matnr.
+      lv_matnr_pdr_consulta_metal = lwa_caract_matnr-atwrt.
+
+      CLEAR lwa_caract_matnr.
+      READ TABLE it_caract_matnr WITH KEY matnr = wa_marc-matnr
+                                          atnam = 'SD_HIERARQUIA_PRODUTO'
+                                          BINARY SEARCH
+                                          INTO lwa_caract_matnr.
+      lv_matnr_sd_hierarquia_produto = lwa_caract_matnr-atwrt.
+
+      CLEAR lwa_caract_matnr.
+      READ TABLE it_caract_matnr WITH KEY matnr = wa_marc-matnr
+                                          atnam = 'SD_DIAM_INT_MINIMO'
+                                          BINARY SEARCH
+                                          INTO lwa_caract_matnr.
+      lv_matnr_sd_diam_int_minimo = lwa_caract_matnr-atflv.
+
+      CLEAR lwa_caract_matnr.
+      READ TABLE it_caract_matnr WITH KEY matnr = wa_marc-matnr
+                                          atnam = 'SD_DIAM_INT_MAXIMO'
+                                          BINARY SEARCH
+                                          INTO lwa_caract_matnr.
+      lv_matnr_sd_diam_int_maximo = lwa_caract_matnr-atflv.
+
+      CLEAR lwa_caract_matnr.
+      READ TABLE it_caract_matnr WITH KEY matnr = wa_marc-matnr
+                                          atnam = 'SD_DIAM_EXT_MINIMO'
+                                          BINARY SEARCH
+                                          INTO lwa_caract_matnr.
+      lv_matnr_sd_diam_ext_minimo = lwa_caract_matnr-atflv.
+
+      CLEAR lwa_caract_matnr.
+      READ TABLE it_caract_matnr WITH KEY matnr = wa_marc-matnr
+                                          atnam = 'SD_DIAM_EXT_MAXIMO'
+                                          BINARY SEARCH
+                                          INTO lwa_caract_matnr.
+      lv_matnr_sd_diam_ext_maximo = lwa_caract_matnr-atflv.
+
+      CLEAR lwa_caract_matnr.
+      READ TABLE it_caract_matnr WITH KEY matnr = wa_marc-matnr
+                                          atnam = 'SD_LIM_RES_MINIMA'
+                                          BINARY SEARCH
+                                          INTO lwa_caract_matnr.
+      lv_matnr_sd_lim_res_minima = lwa_caract_matnr-atflv.
+
+      CLEAR: lwa_caract_matnr, lv_matnr_sd_lim_res_maxima.
+      READ TABLE it_caract_matnr WITH KEY matnr = wa_marc-matnr
+                                          atnam = 'SD_LIM_RES_MAXIMA'
+                                          BINARY SEARCH
+                                          INTO lwa_caract_matnr.
+      " Se limite máximo = 9999, desconsidera na comparação
+      IF lwa_caract_matnr-atflv NE '9999'.
+        lv_matnr_sd_lim_res_maxima = lwa_caract_matnr-atflv.
+      ENDIF.
+
+      CLEAR lwa_caract_matnr.
+      READ TABLE it_caract_matnr WITH KEY matnr = wa_marc-matnr
+                                          atnam = 'SD_ESPESSURA'
+                                          BINARY SEARCH
+                                          INTO lwa_caract_matnr.
+      lv_matnr_sd_espessura = lwa_caract_matnr-atflv.
+
+      CLEAR lwa_caract_matnr.
+      READ TABLE it_caract_matnr WITH KEY matnr = wa_marc-matnr
+                                          atnam = 'SD_LARGURA'
+                                          BINARY SEARCH
+                                          INTO lwa_caract_matnr.
+      lv_matnr_sd_largura = lwa_caract_matnr-atflv.
+
+      CLEAR lwa_caract_matnr.
+      READ TABLE it_caract_matnr WITH KEY matnr = wa_marc-matnr
+                                          atnam = 'SD_COMPRIMENTO'
+                                          BINARY SEARCH
+                                          INTO lwa_caract_matnr.
+      lv_matnr_sd_comprimento = lwa_caract_matnr-atflv.
+*     Stefanini/Elaine Omine - PRJ1372 - 03/08/2023 - Início
+
+      CLEAR:  lv_consistencia_toyota.
+      PERFORM f_check_consistencia_toyota USING wa_marc-werks
+                                                wa_marc-matnr
+                                                wa_mara-mtart
+                                                wa_marc-lgpro
+                                       CHANGING lv_consistencia_toyota.
+
+*RDM 260283
+      CLEAR lv_tipo_certificado.
+      CALL FUNCTION 'ZQMF_TIPO_CERTIFICADO'
+        EXPORTING
+          i_werks                  = wa_marc-werks
+          i_matnr                  = wa_marc-matnr
+        IMPORTING
+          e_mvgr1                  = lv_tipo_certificado
+        EXCEPTIONS
+          ov_item_nao_existe       = 1
+          material_nao_existe      = 2
+          informar_item_ov         = 3
+          material_ov_divergente   = 4
+          centro_ov_divergente     = 5
+          informar_centro          = 6
+          informar_material        = 7
+          informar_ov              = 8
+          tipo_nao_encontrado      = 9
+          estrategia_nao_encontrad = 10
+          OTHERS                   = 11.
+      IF sy-subrc <> 0.
+* Implement suitable error handling here
+      ENDIF.
+*RDM 260283
+
+
+      CLEAR:  lv_consistencia_cdqua.
+      READ TABLE lit_cdqua_faixa ASSIGNING <fs_cdqua_faixa> WITH KEY cod_qual  = lv_matnr_qualidade
+                                                                     laminacao = lv_matnr_laminacao
+                                                                     BINARY SEARCH.
+      IF sy-subrc IS INITIAL.
+        lv_consistencia_cdqua = 'X'.
+      ENDIF.
+
+
+      CLEAR lv_lines.
+
+      IF lv_alternativo IS INITIAL.
+        PERFORM analise_alternativo USING lv_alternativo.
+      ENDIF.
+
+*|.....Base dos Lotes
+      LOOP AT it_mchbcar INTO wa_mchbcar.
+
+*       Stefanini/Elaine Omine - PRJ1372 - 21/07/2023 - Início
+*        "Verificação do tempo de processamento
+*        GET TIME. " atualiza as variáveis de sistema
+*        CALL FUNCTION 'SD_CALC_DURATION_FROM_DATETIME'
+*          EXPORTING
+*            i_date1 = lv_date_ini
+*            i_time1 = lv_time_ini
+*            i_date2 = sy-datum
+*            i_time2 = sy-uzeit
+*          IMPORTING
+*            e_tdiff = lv_diff.
+*        IF lv_diff GE p_durat.
+*          EXIT.
+*        ENDIF.
+*       Stefanini/Elaine Omine - PRJ1372 - 21/07/2023 - Fim
+
+*      MESSAGE s398(00)
+*          WITH 'Analisando o Lote:'
+*               wa_mchbcar-charg
+*               space
+*               space.
+
+
+        "Descartar: Se Lote já ficou como restrito para o IDNRK
+        READ TABLE it_log_aplicacao WITH KEY idnrk_apl = lit_rank_prioridade-idnrk
+                                             matnr     = wa_mchbcar-matnr
+                                             charg     = wa_mchbcar-charg
+                                    INTO wa_log_aplicacao.
+        IF sy-subrc IS INITIAL.
+          CONTINUE.
+        ENDIF.
+
+        "Descartar: Se material do lote for igual SKU em analise
+        IF wa_mchbcar-matnr = wa_mara-matnr.
+          PERFORM f_grava_it_log_aplicacao USING  wa_lista_tecnica-idnrk
+                                                  wa_marc-matnr
+                                                  wa_mchbcar-matnr
+                                                  wa_mchbcar-charg
+                                                  'SKU igual Material do Lote'.
+          CONTINUE.
+        ENDIF.
+
+        "Descartar: Se material do lote for igual componente da lista do SKU em analise
+        IF wa_mchbcar-matnr = wa_lista_tecnica-idnrk.
+          PERFORM f_grava_it_log_aplicacao USING  wa_lista_tecnica-idnrk
+                                                  wa_marc-matnr
+                                                  wa_mchbcar-matnr
+                                                  wa_mchbcar-charg
+                                                  'Material do Lote igual Componente da Lista'.
+          CONTINUE.
+        ENDIF.
+
+        "Descarta: Se Lote x SKU já foi reprovado pela Qualidade
+        READ TABLE it_lta_reprov WITH KEY matnr = wa_marc-matnr
+                                          idnrk = wa_mchbcar-matnr
+                                          charg = wa_mchbcar-charg
+                                          BINARY SEARCH
+                                          INTO wa_lista_alt.
+        IF sy-subrc IS INITIAL.
+          PERFORM f_grava_it_log_aplicacao USING  wa_lista_tecnica-idnrk
+                                                  wa_marc-matnr
+                                                  wa_mchbcar-matnr
+                                                  wa_mchbcar-charg
+                                                  'Lote reprovado pela Qualidade'.
+          CONTINUE.
+        ENDIF.
+
+        "Descartar: Se Lote já está como alternativo na GD
+        READ TABLE it_lista_alt WITH KEY matnr = wa_mchbcar-matnr
+                                         charg = wa_mchbcar-charg
+                                         BINARY SEARCH
+                                         INTO wa_lista_alt.
+        IF sy-subrc IS INITIAL.
+          PERFORM f_grava_it_log_aplicacao USING  wa_lista_tecnica-idnrk
+                                                  wa_marc-matnr
+                                                  wa_mchbcar-matnr
+                                                  wa_mchbcar-charg
+                                                  'Lote já está como alternativo na GD'.
+          CONTINUE.
+        ENDIF.
+
+        CLEAR: lwa_caract_charg.
+        READ TABLE it_caract_charg WITH KEY matnr = wa_mchbcar-matnr
+                                            charg = wa_mchbcar-charg
+                                            atnam = 'HIERARQ_05'
+                                            BINARY SEARCH
+                                            INTO lwa_caract_charg TRANSPORTING atwtb.
+        lv_charg_produto = lwa_caract_charg-atwtb.
+
+        "Descartar se SKU for Rolo e Lote for diferente de Bobina ou Rolo
+        IF lv_matnr_produto = 'Rolo' AND
+           ( lv_charg_produto NE 'Bobinas' AND lv_charg_produto NE 'Rolo' ).
+          PERFORM f_grava_it_log_aplicacao USING  wa_lista_tecnica-idnrk
+                                                  wa_marc-matnr
+                                                  wa_mchbcar-matnr
+                                                  wa_mchbcar-charg
+                                                  'SKU igual Rolo e Lote diferente de Bobina ou Rolo'.
+          CONTINUE.
+        ENDIF.
+
+        "Descartar se SKU for Bobina e Lote for diferente de Bobina ou Rolo
+        IF lv_matnr_produto = 'Bobinas' AND
+           ( lv_charg_produto NE 'Bobinas' AND lv_charg_produto NE 'Rolo' ).
+          PERFORM f_grava_it_log_aplicacao USING  wa_lista_tecnica-idnrk
+                                                  wa_marc-matnr
+                                                  wa_mchbcar-matnr
+                                                  wa_mchbcar-charg
+                                                  'SKU igual Bobina e Lote diferente de Bobina ou Rolo'.
+          CONTINUE.
+        ENDIF.
+
+        lv_matches = 'X'.
+
+        "Consistencia Dimensional
+        PERFORM f_consiste_dimensional
+          USING wa_marc-werks
+                wa_marc-matnr
+                wa_mchbcar
+                lv_matnr_produto
+                lv_charg_produto
+          CHANGING lv_matches.
+        IF lv_matches = 'I'. "Não atende na Espessura ou Largura
+          PERFORM f_grava_it_log_aplicacao USING  wa_lista_tecnica-idnrk
+                                                  wa_marc-matnr
+                                                  wa_mchbcar-matnr
+                                                  wa_mchbcar-charg
+                                                  'Inconsistencia Dimensional'.
+          CONTINUE.
+        ENDIF.
+
+        CLEAR: lwa_caract_charg.
+        READ TABLE it_caract_charg WITH KEY matnr = wa_mchbcar-matnr
+                                            charg = wa_mchbcar-charg
+                                            atnam = 'HIERARQ_04'
+                                            BINARY SEARCH
+                                            INTO lwa_caract_charg TRANSPORTING atwtb.
+        lv_charg_laminacao = lwa_caract_charg-atwtb.
+
+        "Consistência Laminação
+        PERFORM f_consiste_laminacao
+          USING wa_marc-werks
+                wa_marc-matnr
+                wa_mchbcar
+                lv_charg_laminacao
+                lv_matnr_laminacao
+          CHANGING lv_matches.
+        IF lv_matches IS INITIAL.
+          PERFORM f_grava_it_log_aplicacao USING  wa_lista_tecnica-idnrk
+                                                  wa_marc-matnr
+                                                  wa_mchbcar-matnr
+                                                  wa_mchbcar-charg
+                                                  'Inconsistencia Laminacao'.
+          CONTINUE.
+        ENDIF.
+
+* INICIO: 11Jul2024 - RDM 314427 - RGC8096
+* Iníco - 22/01 - RDM 324713 - SANDRA H - incluir em outro ponto do programa
+** MM OLEAMENTO
+        READ TABLE it_caract_charg WITH KEY matnr = wa_mchbcar-matnr
+                                            charg = wa_mchbcar-charg
+                                            atnam = 'MM_OLEAMENTO'
+                                            BINARY SEARCH
+                                            INTO lwa_caract_charg TRANSPORTING atwrt.
+
+        IF sy-subrc EQ 0.
+
+          DATA(lv_charg_oleamento) = lwa_caract_charg-atwrt.
+
+*          PERFORM f_verifica_caract_mm IN PROGRAM mzrnpp_plano_corte_f02
+*            USING 'MM_OLEAMENTO'
+*                  wa_lista_tecnica-idnrk
+*                  wa_mchbcar-matnr CHANGING lv_result.
+
+          PERFORM f_consiste_oleamento
+                  USING 'MM_OLEAMENTO'
+                        wa_marc-werks
+                        wa_marc-matnr
+                        wa_mchbcar
+                        wa_mchbcar-charg
+                  CHANGING lv_charg_oleamento
+                           lv_matnr_oleamento
+                           lv_matches
+                           wa_result.
+
+          IF lv_matches IS INITIAL.
+
+            PERFORM f_grava_it_log_aplicacao USING wa_lista_tecnica-idnrk
+                                                   wa_marc-matnr
+                                                   wa_mchbcar-matnr
+                                                   wa_mchbcar-charg
+                                                   text-m10.
+            CONTINUE.
+
+          ENDIF.
+
+        ENDIF.
+
+* Início - 22/01 - RDM 324713 - SANDRA H - incluir em outro ponto do programa, farol amarelo
+*
+*        READ TABLE it_caract_charg WITH KEY matnr = wa_mchbcar-matnr
+*                                            charg = wa_mchbcar-charg
+*                                            atnam = 'MM_NIVEL_OLEAMENTO'
+*                                            BINARY SEARCH
+*                                            INTO lwa_caract_charg TRANSPORTING atwrt.
+*
+*        IF sy-subrc EQ 0.
+*
+*          DATA(lv_charg_nivel_oleamento) = lwa_caract_charg-atwrt.
+**
+**          PERFORM f_verifica_caract_mm IN PROGRAM mzrnpp_plano_corte_f02
+**            USING 'MM_NIVEL_OLEAMENTO'
+**                  wa_lista_tecnica-idnrk
+**                  wa_mchbcar-matnr CHANGING lv_result.
+** Quimico
+*          PERFORM f_consiste_oleamento
+*            USING 'MM_NIVEL_OLEAMENTO'
+*                  wa_marc-werks
+*                  wa_marc-matnr
+*                  wa_mchbcar
+*                  wa_mchbcar-charg
+*            CHANGING lv_charg_nivel_oleamento
+*                     lv_matnr_nivel_oleamento
+*                     lv_matches
+*                     wa_result.
+*
+*          IF lv_matches IS INITIAL.
+*
+*            PERFORM f_grava_it_log_aplicacao USING wa_lista_tecnica-idnrk
+*                                                    wa_marc-matnr
+*                                                    wa_mchbcar-matnr
+*                                                    wa_mchbcar-charg
+*                                                    text-m09.
+*            CONTINUE.
+*
+*          ENDIF.
+*
+*        ENDIF.
+* FIM - 22/01 - RDM 324713 - SANDRA H - incluir em outro ponto do programa
+
+** Consiste Peça segurança
+        READ TABLE it_caract_charg WITH KEY matnr = wa_mchbcar-matnr
+                                            charg = wa_mchbcar-charg
+                                            atnam = 'MM_PECA_SEGURANCA'
+                                            BINARY SEARCH
+                                            INTO lwa_caract_charg TRANSPORTING atwrt.
+
+        IF sy-subrc EQ 0.
+
+          DATA(lv_charg_pc_seguranca) = lwa_caract_charg-atwrt.
+
+*          PERFORM f_verifica_caract_mm IN PROGRAM mzrnpp_plano_corte_f02
+*            USING 'MM_PECA_SEGURANCA'
+*                  wa_lista_tecnica-idnrk
+*                  wa_mchbcar-matnr CHANGING lv_result.
+
+          PERFORM f_consiste_oleamento
+            USING 'MM_PECA_SEGURANCA'
+                  wa_marc-werks
+                  wa_marc-matnr
+                  wa_mchbcar
+                  wa_mchbcar-charg
+            CHANGING lv_charg_pc_seguranca
+                     lv_matnr_pc_seguranca
+                     lv_matches
+                     wa_result.
+
+          IF lv_matches IS INITIAL.
+
+            PERFORM f_grava_it_log_aplicacao USING wa_lista_tecnica-idnrk
+                                                   wa_marc-matnr
+                                                   wa_mchbcar-matnr
+                                                   wa_mchbcar-charg
+                                                   text-m08.
+            CONTINUE.
+
+          ENDIF.
+
+        ENDIF.
+* FIM: 11Jul2024 - RDM 314427 - RGC8096
+
+        CLEAR: lwa_caract_charg.
+        READ TABLE it_caract_charg WITH KEY matnr = wa_mchbcar-matnr
+                                            charg = wa_mchbcar-charg
+                                            atnam = 'MM_POS_TRATAMENTO'
+                                            BINARY SEARCH
+                                            INTO lwa_caract_charg TRANSPORTING atwrt.
+        lv_charg_mm_pos_tratamento = lwa_caract_charg-atwrt.
+
+        "Consistência Tratamento Quimico
+        PERFORM f_consiste_mm_pos_tratamento
+          USING wa_marc-werks
+                wa_marc-matnr
+                wa_mchbcar
+       CHANGING lv_charg_mm_pos_tratamento
+                lv_matnr_mm_pos_tratamento
+                lv_matches.
+        IF lv_matches IS INITIAL.
+          PERFORM f_grava_it_log_aplicacao USING  wa_lista_tecnica-idnrk
+                                                  wa_marc-matnr
+                                                  wa_mchbcar-matnr
+                                                  wa_mchbcar-charg
+                                                  'Inconsistencia Trat.Quimico'.
+          CONTINUE.
+        ENDIF.
+
+        "Consistência Revestimento
+        PERFORM f_consiste_revestimento
+          USING wa_marc-werks
+                wa_marc-matnr
+                wa_mchbcar
+          CHANGING lv_matches.
+        IF lv_matches IS INITIAL.
+          PERFORM f_grava_it_log_aplicacao USING  wa_lista_tecnica-idnrk
+                                                  wa_marc-matnr
+                                                  wa_mchbcar-matnr
+                                                  wa_mchbcar-charg
+                                                  'Inconsistencia Revestimento'.
+          CONTINUE.
+        ENDIF.
+
+        "Consistência TOYOTA/HONDA/CDQUA_FAIXA
+        IF " lv_consistencia_toyota IS NOT INITIAL OR
+           lv_consistencia_cdqua  IS NOT INITIAL OR
+*RDM 260283
+         ( lv_tipo_certificado = 'UN' OR "(quando certificado for de Usina)
+           lv_tipo_certificado = 'NT' ). "(quando for 'Não Enviar Certificado')   "RDM 268040
+*RDM 260283
+          CLEAR: lwa_caract_charg.
+          READ TABLE it_caract_charg WITH KEY matnr = wa_mchbcar-matnr
+                                              charg = wa_mchbcar-charg
+                                              atnam = 'SD_QUALIDADES'
+                                              BINARY SEARCH
+                                              INTO lwa_caract_charg TRANSPORTING atwrt.
+          lv_charg_qualidade = lwa_caract_charg-atwrt.
+
+          PERFORM f_consiste_qualidade
+            USING wa_marc-werks
+                  wa_marc-matnr
+                  wa_mchbcar
+                  lv_charg_qualidade
+                  lv_matnr_qualidade
+*                 Stefanini/Elaine Omine - PRJ1372 - 18/01/2024 - Início
+                  lv_consistencia_cdqua
+*                 Stefanini/Elaine Omine - PRJ1372 - 18/01/2024 - Fim
+            CHANGING lv_matches.
+          IF lv_matches IS INITIAL.
+            PERFORM f_grava_it_log_aplicacao USING  wa_lista_tecnica-idnrk
+                                                    wa_marc-matnr
+                                                    wa_mchbcar-matnr
+                                                    wa_mchbcar-charg
+                                                    'Inconsistencia Qualidade'.
+            CONTINUE.
+          ENDIF.
+        ENDIF.
+
+*RDM 315265 - reposicionado para depois das consistencias que descartam a sugestão de MP
+*        " Consistência certificado
+*        PERFORM f_consiste_certificado
+*            USING wa_marc-werks
+*                  wa_marc-matnr
+*                  wa_mara-mtart
+*                  wa_marc-lgpro
+*                  wa_mchbcar
+*                  lv_charg_qualidade
+*                  lv_matnr_qualidade
+*            CHANGING lv_matches.
+*RDM 315265
+
+        "Consistência Reserva OP
+        PERFORM f_consiste_reserva_op
+          USING wa_marc-werks
+                wa_marc-matnr
+                wa_mchbcar
+          CHANGING lv_matches.
+        IF lv_matches IS INITIAL.
+          PERFORM f_grava_it_log_aplicacao USING  wa_lista_tecnica-idnrk
+                                                  wa_marc-matnr
+                                                  wa_mchbcar-matnr
+                                                  wa_mchbcar-charg
+                                                  'Inconsistencia Reserva'.
+          CONTINUE.
+        ENDIF.
+
+*RDM 315265 - reposicionado para depois das consistencias que descartam a sugestão de MP
+*        "Consistência depósito
+*        PERFORM f_consiste_deposito
+*          USING wa_marc-werks
+*                wa_marc-matnr
+*                wa_mchbcar
+*          CHANGING lv_matches.
+
+        "Consistência Prova de Erro
+        READ TABLE lit_log_pe WITH KEY idnrk = wa_lista_tecnica-idnrk
+                                       matnr = wa_mchbcar-matnr
+                                       charg = wa_mchbcar-charg.
+        IF sy-subrc IS INITIAL.
+          IF lit_log_pe-resul = 'NOK'.
+            CLEAR lv_matches.
+          ENDIF.
+        ELSE.
+          PERFORM f_consiste_prova_erro
+            USING wa_marc-werks
+                  wa_marc-matnr
+                  wa_mchbcar
+            CHANGING lv_matches.
+
+          "para melhoria de performance
+          lit_log_pe-idnrk = wa_lista_tecnica-idnrk.  "MP com necessidade
+          lit_log_pe-matnr = wa_mchbcar-matnr.        "Material do lote
+          lit_log_pe-charg = wa_mchbcar-charg.        "Lote
+          IF lv_matches IS NOT INITIAL.
+            lit_log_pe-resul = 'OK '.
+          ELSE.
+            lit_log_pe-resul = 'NOK'.
+          ENDIF.
+          APPEND lit_log_pe.
+          CLEAR lit_log_pe.
+        ENDIF.
+
+        IF lv_matches IS INITIAL.
+          PERFORM f_grava_it_log_aplicacao USING  wa_lista_tecnica-idnrk
+                                                  wa_marc-matnr
+                                                  wa_mchbcar-matnr
+                                                  wa_mchbcar-charg
+                                                  'Inconsistencia Prova de Erro'.
+          CONTINUE.
+        ENDIF.
+
+*       Stefanini/Elaine Omine - PRJ1372 - 27/07/2023 - Início
+*        CLEAR lwa_caract_charg.
+*        READ TABLE it_caract_charg WITH KEY matnr = wa_mchbcar-matnr
+*                                            charg = wa_mchbcar-charg
+*                                            atnam = 'SD_DIAMETRO_INTERNO'
+*                                            BINARY SEARCH
+*                                            INTO lwa_caract_charg TRANSPORTING atflv.
+*        lv_charg_sd_diametro_interno = lwa_caract_charg-atflv.
+*
+*        CLEAR lwa_caract_charg.
+*        READ TABLE it_caract_charg WITH KEY matnr = wa_mchbcar-matnr
+*                                            charg = wa_mchbcar-charg
+*                                            atnam = 'SD_DIAMETRO_EXTERNO'
+*                                            BINARY SEARCH
+*                                            INTO lwa_caract_charg TRANSPORTING atflv.
+*        lv_charg_sd_diametro_externo = lwa_caract_charg-atflv.
+
+        CLEAR lwa_caract_charg.
+        READ TABLE it_caract_charg WITH KEY matnr = wa_mchbcar-matnr
+                                            charg = wa_mchbcar-charg
+                                            atnam = 'PDR_CONSULTA_METALURGICA'
+                                            BINARY SEARCH
+                                            INTO lwa_caract_charg TRANSPORTING atwrt.
+        lv_charg_pdr_consulta_metal = lwa_caract_charg-atwrt.
+
+*        CLEAR lwa_caract_charg.
+*        READ TABLE it_caract_charg WITH KEY matnr = wa_mchbcar-matnr
+*                                            charg = wa_mchbcar-charg
+*                                            atnam = 'SD_LIM_RESISTENCIA'
+*                                            BINARY SEARCH
+*                                            INTO lwa_caract_charg TRANSPORTING atflv.
+*        lv_charg_sd_lim_resistencia = lwa_caract_charg-atflv.
+
+*        CLEAR lwa_caract_charg.
+*        READ TABLE it_caract_charg WITH KEY matnr = wa_mchbcar-matnr
+*                                            charg = wa_mchbcar-charg
+*                                            atnam = 'SD_COMPRIMENTO'
+*                                            BINARY SEARCH
+*                                            INTO lwa_caract_charg TRANSPORTING atflv.
+*        lv_charg_comp = lwa_caract_charg-atflv.
+
+        CLEAR lwa_caract_charg.
+        READ TABLE it_caract_charg WITH KEY matnr = wa_mchbcar-matnr
+                                            charg = wa_mchbcar-charg
+                                            atnam = 'SD_LARGURA'
+                                            BINARY SEARCH
+                                            INTO lwa_caract_charg.
+        wa_mchbcar-largura = lwa_caract_charg-atflv.
+
+        CLEAR lwa_caract_charg.
+        READ TABLE it_caract_charg WITH KEY matnr = wa_mchbcar-matnr
+                                            charg = wa_mchbcar-charg
+                                            atnam = 'SD_ESPESSURA'
+                                            BINARY SEARCH
+                                            INTO lwa_caract_charg.
+        wa_mchbcar-espessura = lwa_caract_charg-atflv.
+
+        CLEAR wa_mchbcar_aux.
+        MOVE-CORRESPONDING wa_mchbcar TO wa_mchbcar_aux.
+
+        PERFORM f_consiste_capabilidade
+          TABLES it_result
+                 it_zppt_restr_entr
+                 it_zqmt_restr_equip
+                 it_zrnppt_prev
+*                 it_zrnppt_prev_capa
+                 it_zqmt_restr_cli
+                 it_caract_matnr
+                 it_zppt_restr_eqp_t
+                 it_zppt_restr_eqp_l
+                 it_zppt_restr_eqp_p
+                 it_mast
+*                Stefanini/Elaine Omine - PRJ1372 - 18/09/2023 - Início
+                 it_zqmt_partnumber
+*                Stefanini/Elaine Omine - PRJ1372 - 18/09/2023 - Fim
+          USING wa_marc-werks
+                wa_marc-matnr
+                lv_matnr_produto
+                lv_charg_produto
+                lv_charg_laminacao
+*                lv_charg_sd_diametro_interno
+*                lv_charg_sd_diametro_externo
+                lv_charg_pdr_consulta_metal
+*                lv_charg_sd_lim_resistencia
+                lv_matnr_sd_comprimento
+                lv_matnr_sd_espessura
+                lv_matnr_sd_largura
+                lv_matnr_laminacao
+*                lv_charg_comp
+                wa_mchbcar_aux
+                lv_tipo_certificado
+                lv_matnr_pdr_consulta_metal
+                lv_matnr_sd_hierarquia_produto
+                lv_matnr_sd_diam_int_minimo
+                lv_matnr_sd_diam_int_maximo
+                lv_matnr_sd_diam_ext_minimo
+                lv_matnr_sd_diam_ext_maximo
+                lv_matnr_sd_lim_res_minima
+                lv_matnr_sd_lim_res_maxima
+                wa_lista_tecnica
+          CHANGING lv_matches.
+
+        IF lv_matches IS INITIAL.
+          CONTINUE.
+        ENDIF.
+*       Stefanini/Elaine Omine - PRJ1372 - 27/07/2023 - Fim
+
+** 'MM_NIVEL_OLEAMENTO'
+*        READ TABLE it_caract_charg WITH KEY matnr = wa_mchbcar-matnr
+*                                            charg = wa_mchbcar-charg
+*                                            atnam = 'MM_NIVEL_OLEAMENTO'
+*                                            BINARY SEARCH
+*                                            INTO lwa_caract_charg TRANSPORTING atwrt.
+*
+*        IF sy-subrc EQ 0.
+*
+*          DATA(lv_charg_nivel_oleamento) = lwa_caract_charg-atwrt.
+*
+*          PERFORM f_consiste_oleamento
+*            USING 'MM_NIVEL_OLEAMENTO'
+*                  wa_marc-werks
+*                  wa_marc-matnr
+*                  wa_mchbcar
+*                  wa_mchbcar-charg
+*            CHANGING lv_charg_nivel_oleamento
+*                     lv_matnr_nivel_oleamento
+*                     lv_matches
+*                     wa_result.
+*
+*          IF lv_matches IS INITIAL.
+*            PERFORM f_grava_it_log_aplicacao USING wa_lista_tecnica-idnrk
+*                                                    wa_marc-matnr
+*                                                    wa_mchbcar-matnr
+*                                                    wa_mchbcar-charg
+*                                                    text-m09.
+*          ENDIF.
+*
+*        ENDIF.
+* FIM - 22/01 - RDM 324713 - SANDRA H - incluir em outro ponto do programa
+
+*RDM 315265
+        " Consistência certificado
+        PERFORM f_consiste_certificado
+            USING wa_marc-werks
+                  wa_marc-matnr
+                  wa_mara-mtart
+                  wa_marc-lgpro
+                  wa_mchbcar
+                  lv_charg_qualidade
+                  lv_matnr_qualidade
+            CHANGING lv_matches.
+
+*       "Consistência depósito
+        PERFORM f_consiste_deposito
+          USING wa_marc-werks
+                wa_marc-matnr
+                wa_mchbcar
+          CHANGING lv_matches.
+*RDM 315265
+
+        MOVE-CORRESPONDING wa_mchbcar TO wa_result.
+        wa_result-werks_apl = wa_marc-werks.
+        wa_result-matnr_apl = wa_marc-matnr.
+        wa_result-log       = ''.
+        wa_result-xloek     = ''.
+        wa_result-idnrk_apl = wa_lista_tecnica-idnrk.
+        wa_result-lgort_apl = wa_marc-lgpro.
+        APPEND wa_result TO it_result.
+        CLEAR wa_result.
+
+        "Verificação da qtde de lotes já sugeridos por SKU
+        IF p_max_ln IS NOT INITIAL.
+          lv_lines = lv_lines + 1.
+          IF lv_lines EQ p_max_ln. "Nº máx. de Aplicações por SKU
+            EXIT.
+          ENDIF.
+        ENDIF.
+
+      ENDLOOP.
+
+*      DELETE it_result WHERE log IS NOT INITIAL.
+
+      "Verificação do tempo de processamento
+      GET TIME. " atualiza as variáveis de sistema
+      CALL FUNCTION 'SD_CALC_DURATION_FROM_DATETIME'
+        EXPORTING
+          i_date1 = lv_date_ini
+          i_time1 = lv_time_ini
+          i_date2 = sy-datum
+          i_time2 = sy-uzeit
+        IMPORTING
+          e_tdiff = lv_diff.
+      IF lv_diff GE p_durat.
+        EXIT.
+      ENDIF.
+
+    ENDLOOP.
+
+    LOOP AT it_log_aplicacao INTO wa_log_aplicacao
+                             WHERE idnrk_apl = wa_mp_falta-matnr.
+
+      READ TABLE it_result INTO wa_result
+                           WITH KEY idnrk_apl = wa_log_aplicacao-idnrk_apl
+                                    matnr     = wa_log_aplicacao-matnr
+                                    charg     = wa_log_aplicacao-charg.
+      IF sy-subrc IS INITIAL.
+        DELETE it_result WHERE idnrk_apl = wa_log_aplicacao-idnrk_apl
+                           AND matnr     = wa_log_aplicacao-matnr
+                           AND charg     = wa_log_aplicacao-charg.
+*        APPEND wa_result TO it_result.
+      ENDIF.
+    ENDLOOP.
+    FREE it_log_aplicacao.
+  ENDLOOP.
+
+*  "selecionar só aplicações que atendam a necessidade de todos os SKUs da mesma MP.
+*  SORT it_log_aplicacao BY idnrk_apl matnr charg.
+*  LOOP AT it_result ASSIGNING <fs_result>.
+*
+*    READ TABLE it_log_aplicacao WITH KEY idnrk_apl = <fs_result>-idnrk_apl
+*                                         matnr     = <fs_result>-matnr
+*                                         charg     = <fs_result>-charg
+*                                INTO wa_log_aplicacao
+*                                BINARY SEARCH.
+*    IF sy-subrc IS INITIAL.
+*      DELETE it_result WHERE idnrk_apl = wa_log_aplicacao-idnrk_apl
+*                         AND matnr     = wa_log_aplicacao-matnr
+*                         AND charg     = wa_log_aplicacao-charg.
+*    ENDIF.
+*
+*  ENDLOOP.
+*  FREE it_log_aplicacao.
+
+
+  IF it_result[] IS NOT INITIAL.
+
+    cl_progress_indicator=>progress_indicate(
+      i_text = 'Gerando resultado...'
+      i_output_immediately = abap_true ).
+
+    lit_result[] = it_result[].
+    SORT lit_result BY matnr.
+    DELETE ADJACENT DUPLICATES FROM lit_result COMPARING matnr.
+
+    SELECT *
+      FROM makt
+      INTO CORRESPONDING FIELDS OF TABLE lit_makt
+      FOR ALL ENTRIES IN lit_result
+      WHERE matnr = lit_result-matnr
+        AND spras = 'PT'.
+
+    lit_result[] = it_result[].
+    SORT lit_result BY matnr_apl.
+    DELETE ADJACENT DUPLICATES FROM lit_result COMPARING matnr_apl.
+
+    SELECT *
+      FROM makt
+      APPENDING CORRESPONDING FIELDS OF TABLE lit_makt
+      FOR ALL ENTRIES IN lit_result
+      WHERE matnr = lit_result-matnr_apl
+        AND spras = 'PT'.
+
+    IF it_mslb[] IS NOT INITIAL.
+      SELECT lifnr sortl
+        FROM lfa1
+        INTO CORRESPONDING FIELDS OF TABLE lit_lfa1
+        FOR ALL ENTRIES IN it_mslb
+        WHERE lifnr = it_mslb-lifnr.
+      IF sy-subrc IS INITIAL.
+        SORT lit_lfa1 BY lifnr sortl.
+      ENDIF.
+    ENDIF.
+
+    SORT lit_makt BY matnr.
+    SORT it_zrnppt_prev BY werks ano mes matnr.
+
+*    PERFORM analise_alternativos.
+
+    LOOP AT it_result ASSIGNING <fs_result>.
+
+      CLEAR wa_outtab.
+      MOVE-CORRESPONDING <fs_result> TO wa_outtab.
+
+      READ TABLE lit_makt ASSIGNING <fs_makt>
+                          WITH KEY matnr = <fs_result>-matnr
+                          BINARY SEARCH.
+      IF sy-subrc IS INITIAL.
+        wa_outtab-maktx = <fs_makt>-maktx.
+      ENDIF.
+
+      READ TABLE lit_makt ASSIGNING <fs_makt>
+                          WITH KEY matnr = <fs_result>-matnr_apl
+                          BINARY SEARCH.
+      IF sy-subrc IS INITIAL.
+        wa_outtab-maktx_apl = <fs_makt>-maktx.
+      ENDIF.
+
+      READ TABLE it_lista_tecnica ASSIGNING <fs_lista_tecnica>
+                                  WITH KEY werks = <fs_result>-werks_apl
+                                           matnr = <fs_result>-matnr_apl
+                                           BINARY SEARCH.
+      IF sy-subrc IS INITIAL.
+        wa_outtab-idnrk_apl = <fs_lista_tecnica>-idnrk.
+      ENDIF.
+
+      "Demanda Mes
+      lv_ano = sy-datum(4).
+      lv_mes = sy-datum+4(2).
+      READ TABLE it_zrnppt_prev ASSIGNING <fs_zrnppt_prev>
+                                WITH KEY werks = <fs_result>-werks_apl
+                                         ano   = lv_ano
+                                         mes   = lv_mes
+                                         matnr = <fs_result>-matnr_apl
+                                         BINARY SEARCH.
+      IF sy-subrc IS INITIAL.
+        wa_outtab-prev_org = <fs_zrnppt_prev>-peso.
+      ENDIF.
+
+      "Demanda M+1
+      lv_mes = lv_mes + 1.
+      IF lv_mes = 12.
+        lv_ano  = lv_ano + 1.
+        lv_mes  = 1.
+      ENDIF.
+      READ TABLE it_zrnppt_prev ASSIGNING <fs_zrnppt_prev>
+                                WITH KEY werks = <fs_result>-werks_apl
+                                         ano   = lv_ano
+                                         mes   = lv_mes
+                                         matnr = <fs_result>-matnr_apl
+                                         BINARY SEARCH.
+      IF sy-subrc IS INITIAL.
+        wa_outtab-prev_org1 = <fs_zrnppt_prev>-peso.
+      ENDIF.
+
+      "Demanda M+2
+      lv_mes = lv_mes + 1.
+      IF lv_mes = 12.
+        lv_ano  = lv_ano + 1.
+        lv_mes  = 1.
+      ENDIF.
+      READ TABLE it_zrnppt_prev ASSIGNING <fs_zrnppt_prev>
+                                WITH KEY werks = <fs_result>-werks_apl
+                                         ano   = lv_ano
+                                         mes   = lv_mes
+                                         matnr = <fs_result>-matnr_apl
+                                         BINARY SEARCH.
+      IF sy-subrc IS INITIAL.
+        wa_outtab-prev_org2 = <fs_zrnppt_prev>-peso.
+      ENDIF.
+
+      READ TABLE it_mslb ASSIGNING <fs_mslb> WITH KEY matnr = <fs_result>-matnr
+                                                      charg = <fs_result>-charg
+                                                      BINARY SEARCH.
+      IF sy-subrc IS INITIAL.
+        READ TABLE lit_lfa1 ASSIGNING <fs_lfa1> WITH KEY lifnr = <fs_mslb>-lifnr.
+        IF sy-subrc IS INITIAL.
+          wa_outtab-charg_mslb = <fs_lfa1>-sortl.
+        ENDIF.
+      ENDIF.
+
+      READ TABLE it_caract_charg ASSIGNING <fs_caract_charg>
+                                 WITH KEY matnr = <fs_result>-matnr
+                                          charg = <fs_result>-charg
+                                          atnam = 'SD_SUPERFICIE'
+                                          BINARY SEARCH.
+      IF sy-subrc IS INITIAL.
+        wa_outtab-superficie = <fs_caract_charg>-atwtb.
+      ENDIF.
+
+      READ TABLE it_caract_matnr ASSIGNING <fs_caract_matnr>
+                                 WITH KEY matnr = <fs_result>-matnr_apl
+                                          atnam = 'SD_SUPERFICIE'
+                                          BINARY SEARCH.
+      IF sy-subrc IS INITIAL.
+        wa_outtab-superficie_apl = <fs_caract_matnr>-atwtb.
+      ENDIF.
+
+      "Define Status e Alerta
+      IF <fs_result>-log IS INITIAL.
+
+        wa_outtab-icon_stt = icon_green_light.
+        TRANSLATE wa_outtab-statustxt TO UPPER CASE.
+        APPEND wa_outtab TO gt_outtab1.
+
+      ELSE.
+
+        " verificar se o lote esta reservado
+        PERFORM f_check_lote_reservado CHANGING wa_outtab
+                                                wa_outtab-xloek.
+
+        wa_outtab-icon_stt  = icon_yellow_light.
+
+*       Stefanini/Elaine Omine - PRJ1372 - 02/08/2023 - Início
+*        SPLIT <fs_result>-log AT '>>' INTO wa_outtab-statustxt wa_outtab-log.
+        IF wa_outtab-xloek EQ 'E' OR
+           wa_outtab-xloek EQ 'C' OR
+           wa_outtab-xloek EQ 'R'.
+          wa_outtab-statustxt = 'CAPABILIDADE'.
+          wa_outtab-log       = <fs_result>-log.
+        ELSEIF wa_outtab-xloek EQ 'M'.
+          wa_outtab-statustxt = 'CONSULTA'.
+          wa_outtab-log       = <fs_result>-log.
+        ELSEIF wa_outtab-xloek EQ 'A'.
+          wa_outtab-statustxt = 'CERTIFICADO'.
+          wa_outtab-log       = <fs_result>-log.
+        ELSE.
+          SPLIT <fs_result>-log AT '>>' INTO wa_outtab-statustxt wa_outtab-log.
+          TRANSLATE wa_outtab-statustxt TO UPPER CASE.
+        ENDIF.
+*       Stefanini/Elaine Omine - PRJ1372 - 02/08/2023 - Fim
+
+*RDM 315265
+*        TRANSLATE wa_outtab-statustxt TO UPPER CASE.
+*        APPEND wa_outtab TO gt_outtab2.
+*RDM 315265
+
+*RDM 315265
+        CLEAR lv_restrito.
+        PERFORM f_classifica_log CHANGING wa_outtab
+                                          lv_restrito.
+
+        IF lv_restrito IS INITIAL.
+          TRANSLATE wa_outtab-statustxt TO UPPER CASE.
+          APPEND wa_outtab TO gt_outtab2.
+        ELSE.
+          wa_outtab-icon_stt  = icon_red_light.
+          TRANSLATE wa_outtab-statustxt TO UPPER CASE.
+          TRANSLATE wa_outtab-log TO UPPER CASE.
+          APPEND wa_outtab TO gt_outtab3. " gt_outtab2. " rdm 324713
+        ENDIF.
+*RDM 315265
+
+      ENDIF.
+
+    ENDLOOP.
+
+  ENDIF.
+
+*RDM 315265
+  "na opção OTIMIZADOR, não pode ter alternativo com restrição
+  DATA(lt_outtab2) = gt_outtab2[].
+  DELETE lt_outtab2 WHERE icon_stt NE icon_red_light.
+  IF lt_outtab2[] IS NOT INITIAL.
+    DELETE ADJACENT DUPLICATES FROM lt_outtab2 COMPARING matnr charg matnr_apl.
+    SORT lt_outtab2 BY matnr charg matnr_apl.
+
+    LOOP AT gt_outtab1 INTO wa_outtab.
+      lv_tabix = sy-tabix.
+
+      READ TABLE lt_outtab2 TRANSPORTING NO FIELDS
+                            WITH KEY matnr      = wa_outtab-matnr
+                                     charg      = wa_outtab-charg
+                                     matnr_apl  = wa_outtab-matnr_apl
+                                     BINARY SEARCH.
+      IF sy-subrc IS INITIAL.
+        DELETE gt_outtab1 INDEX lv_tabix.
+      ENDIF.
+    ENDLOOP.
+
+    LOOP AT gt_outtab2 INTO wa_outtab.
+      lv_tabix = sy-tabix.
+
+      READ TABLE lt_outtab2 TRANSPORTING NO FIELDS
+                            WITH KEY matnr      = wa_outtab-matnr
+                                     charg      = wa_outtab-charg
+                                     matnr_apl  = wa_outtab-matnr_apl
+                                     BINARY SEARCH.
+      IF sy-subrc IS INITIAL.
+        DELETE gt_outtab2 INDEX lv_tabix.
+      ENDIF.
+    ENDLOOP.
+
+  ENDIF.
+*RDM 315265
+
+  FREE: lit_cdqua_faixa, lit_result, lit_makt, lit_lfa1, lit_rank_prioridade, lit_log_pe, it_log_aplicacao.
+
+ENDFORM.                    " F_ANALISE_ESTOQUE_EXCESSO
+
+*&---------------------------------------------------------------------*
+*&      Form  F_GRAVA_TABELA_APLICACAO
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*&---------------------------------------------------------------------*
+*&      Form  F_GRAVA_TABELA_APLICACAO
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM f_grava_tabela_aplicacao USING p_cprog
+                                    p_ernam
+                                    p_tpmesag.
+
+  DATA: lwa_pajt   TYPE zppt_pajt,
+*       Stefanini/Elaine Omine - PRJ1372 - 12/09/2023 - Início
+        lwa_sugest TYPE zppt_vf_sugest,
+*       Stefanini/Elaine Omine - PRJ1372 - 12/09/2023 - Fim
+        lv_seq     TYPE zppt_pajt-seq.
+
+  DATA: lit_oest_log_sum TYPE TABLE OF zppt_oest_log,
+        lwa_oest_log_sum TYPE zppt_oest_log.
+
+  DATA: lv_necessidade      TYPE zppt_oest_log-necessidade,
+        lv_compra_projetada TYPE p DECIMALS 3.
+
+  SELECT MAX( seq )
+    FROM zppt_pajt
+    INTO lv_seq
+    WHERE cprog EQ p_cprog
+      AND ernam EQ p_ernam.
+
+  ADD 1 TO lv_seq.
+  MOVE-CORRESPONDING wa_outtab TO lwa_pajt.
+  lwa_pajt-cprog    = p_cprog.
+  lwa_pajt-ernam    = p_ernam.
+  lwa_pajt-seq      = lv_seq.
+  lwa_pajt-erdat    = sy-datum.
+  lwa_pajt-erzet    = sy-uzeit.
+  lwa_pajt-tpmesag  = p_tpmesag.
+* Stefanini/Elaine Omine - PRJ1372 - 12/09/2023 - Início
+  lwa_pajt-decendio = gv_decendio.
+
+  IF p_ernam EQ 'JOBTNG2'.
+
+    IF it_zrnppt_prev[] IS INITIAL.
+      PERFORM f_seleciona_prev_demandas.
+    ENDIF.
+
+    CLEAR lwa_sugest.
+    MOVE-CORRESPONDING lwa_pajt TO lwa_sugest.
+
+    SELECT *
+      FROM  zppt_oest_log
+      INTO TABLE @DATA(lit_oest_log)
+      WHERE erdat     EQ @lwa_pajt-erdat
+        AND werks     EQ @lwa_pajt-werks
+        AND matnr     EQ @lwa_pajt-matnr
+        AND charg     EQ @lwa_pajt-charg
+        AND lgort     EQ @lwa_pajt-lgort
+        AND idnrk_apl EQ @lwa_pajt-idnrk_apl
+        AND lgort_apl EQ @lwa_pajt-lgort_apl
+        AND situacao  EQ 'APROVADO'
+        AND ( cprog   EQ 'ZPPR_PROCESSA_NECESSIDADE_MP' OR
+              cprog   EQ '' ).
+
+    SORT lit_oest_log BY idnrk_apl matnr charg.
+    DELETE ADJACENT DUPLICATES FROM lit_oest_log COMPARING idnrk_apl matnr charg.
+    LOOP AT lit_oest_log INTO DATA(wa_oest_log).
+      lwa_oest_log_sum-idnrk_apl = wa_oest_log-idnrk_apl.
+      lwa_oest_log_sum-clabs     = wa_oest_log-clabs.
+      COLLECT lwa_oest_log_sum INTO lit_oest_log_sum.
+    ENDLOOP.
+
+    SELECT SINGLE matnr, lote_minimo, necessidade
+      INTO @DATA(ls_zppt_gi)
+        FROM zppt_gi
+          WHERE matnr = @lwa_pajt-idnrk_apl.
+
+    IF sy-subrc IS INITIAL.
+
+      lwa_sugest-saving  = ( ls_zppt_gi-necessidade / ls_zppt_gi-lote_minimo ).
+      CALL FUNCTION 'ROUND'
+        EXPORTING
+          decimals      = 0
+          input         = lwa_sugest-saving
+          sign          = '+'
+        IMPORTING
+          output        = lwa_sugest-saving
+        EXCEPTIONS
+          input_invalid = 1
+          overflow      = 2
+          type_invalid  = 3
+          OTHERS        = 4.
+      IF sy-subrc <> 0.
+* Implement suitable error handling here
+      ENDIF.
+      lwa_sugest-saving  = lwa_sugest-saving  * ls_zppt_gi-lote_minimo.
+
+      lwa_sugest-necessidade = ls_zppt_gi-necessidade.
+      lwa_sugest-lotemin     = ls_zppt_gi-lote_minimo.
+
+*** Compra projetada
+      lwa_sugest-comp_proj = lwa_sugest-saving.
+
+      CLEAR lwa_oest_log_sum.
+      READ TABLE lit_oest_log_sum INTO lwa_oest_log_sum
+                                  WITH KEY idnrk_apl = lwa_pajt-idnrk_apl.
+
+      "Necessidade² = 9 (Necessidade (-) #Alternativos)
+      lv_necessidade      = ls_zppt_gi-necessidade - lwa_oest_log_sum-clabs.
+      lv_compra_projetada = ( lv_necessidade / ls_zppt_gi-lote_minimo ).
+      IF lv_compra_projetada GT 0.
+
+        CALL FUNCTION 'ROUND'
+          EXPORTING
+            decimals      = 0
+            input         = lv_compra_projetada
+            sign          = '+'
+          IMPORTING
+            output        = lv_compra_projetada
+          EXCEPTIONS
+            input_invalid = 1
+            overflow      = 2
+            type_invalid  = 3
+            OTHERS        = 4.
+        IF sy-subrc <> 0.
+        ENDIF.
+        lv_compra_projetada = lv_compra_projetada * ls_zppt_gi-lote_minimo.
+
+*        lwa_sugest-saving   = lwa_sugest-comp_proj - lv_compra_projetada.
+
+      ENDIF.
+
+*** Compra Otimizada
+      DATA(lv_qtde_lotes) = CONV labst( ls_zppt_gi-necessidade - lwa_pajt-clabs ) / ls_zppt_gi-lote_minimo.
+      CALL FUNCTION 'ROUND'
+        EXPORTING
+          decimals      = 0
+          input         = lv_qtde_lotes
+          sign          = '+'
+        IMPORTING
+          output        = lv_qtde_lotes
+        EXCEPTIONS
+          input_invalid = 1
+          overflow      = 2
+          type_invalid  = 3
+          OTHERS        = 4.
+      IF sy-subrc <> 0.
+      ENDIF.
+
+      lwa_sugest-comp_otmz = lv_qtde_lotes * ls_zppt_gi-lote_minimo.
+      IF lwa_sugest-comp_otmz < 0.
+        CLEAR lwa_sugest-comp_otmz.
+      ENDIF.
+
+      lwa_sugest-laeda   = sy-datum.
+      lwa_sugest-origem  = 'OTIMIZADOR'.
+      lwa_sugest-status  = 'PENDENTE'.
+
+    ENDIF.
+
+    READ TABLE it_zrnppt_prev INTO DATA(ls_prev)
+        WITH KEY matnr = lwa_pajt-matnr_apl.
+*                 werks = lwa_pajt-werks.
+
+    IF sy-subrc IS INITIAL.
+
+      lwa_sugest-kunnr = ls_prev-kunnr.
+
+      SELECT vkbur, vkgrp, spart
+        INTO TABLE @DATA(lt_knvv)
+          FROM knvv
+            WHERE kunnr = @ls_prev-kunnr.
+
+      IF lt_knvv IS NOT INITIAL.
+
+        TRY.
+
+            DATA(ls_knvv) = lt_knvv[ spart = 'JT' ].
+            DATA(lv_filtro) = CONV ze_filtro( ls_knvv-vkbur && ls_knvv-vkgrp && ls_knvv-spart ).
+            DATA(lv_filtro_2) = CONV ze_filtro( ls_knvv-vkbur && ls_knvv-vkgrp ).
+
+          CATCH cx_sy_itab_line_not_found.
+
+            TRY.
+                ls_knvv = lt_knvv[ 1 ].
+                lv_filtro = ls_knvv-vkbur && ls_knvv-vkgrp.
+              CATCH cx_sy_itab_line_not_found.
+            ENDTRY.
+
+        ENDTRY.
+
+        IF lv_filtro IS NOT INITIAL.
+
+          SELECT filtro, valor
+            INTO TABLE @DATA(lt_valor)
+              FROM zsuget_variaveis
+                WHERE filtro = @lv_filtro OR filtro = @lv_filtro_2.
+
+          IF sy-subrc IS INITIAL.
+            TRY.
+                DATA(ls_valor) = lt_valor[ filtro = lv_filtro ].
+              CATCH cx_sy_itab_line_not_found.
+                IF lv_filtro_2 IS NOT INITIAL.
+                  TRY.
+                      ls_valor = lt_valor[ filtro = lv_filtro_2 ].
+                    CATCH cx_sy_itab_line_not_found.
+                  ENDTRY.
+                ENDIF.
+            ENDTRY.
+          ENDIF.
+          lwa_sugest-ger_com = ls_valor-valor(2).
+          lwa_sugest-tp_venda = ls_valor-valor+3(2).
+          lwa_sugest-grtp_ven = ls_valor-valor+6(2).
+
+        ENDIF.
+
+
+      ENDIF.
+
+      CLEAR lv_filtro.
+      REFRESH lt_knvv.
+
+    ENDIF.
+
+*   Stefanini/Elaine Omine - PRJ1372 - 02/04/2023 - Início
+    SELECT SINGLE umrez, umren
+      FROM marm
+      INTO @DATA(wl_marm)
+     WHERE matnr EQ @lwa_pajt-matnr
+       AND meinh EQ 'TN'.
+    IF sy-subrc EQ 0.
+      lwa_sugest-umrez = wl_marm-umrez.
+      lwa_sugest-umren = wl_marm-umren.
+    ENDIF.
+*   Stefanini/Elaine Omine - PRJ1372 - 02/04/2023 - Fim
+
+    INSERT INTO zppt_vf_sugest VALUES lwa_sugest.
+  ENDIF.
+* Stefanini/Elaine Omine - PRJ1372 - 12/09/2023 - Fim
+
+  INSERT INTO zppt_pajt VALUES lwa_pajt.
+
+  IF sy-subrc EQ 0.
+    COMMIT WORK AND WAIT.
+  ELSE.
+    ROLLBACK WORK.
+  ENDIF.
+
+ENDFORM.                    " F_GRAVA_TABELA_APLICACAO
+
+*&---------------------------------------------------------------------*
+*&      Form  F_MATCH_ESTOQUE
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM f_match_estoque .
+
+  TYPES:
+    BEGIN OF ty_rank,
+      mark           TYPE c,
+      icon_stt       TYPE icon-id,
+      statustxt(100) TYPE c,
+      werks          TYPE mchb-werks,
+      matnr          TYPE mchb-matnr,
+      maktx          TYPE makt-maktx,
+      charg          TYPE mchb-charg,
+      lgort          TYPE mchb-lgort,
+      charg_mslb     TYPE lfa1-sortl,
+      clabs          TYPE mchb-clabs,
+      superficie     TYPE ausp-atwrt,
+      werks_apl      TYPE marc-werks,
+      matnr_apl      TYPE marc-matnr,
+      maktx_apl      TYPE makt-maktx,
+      superficie_apl TYPE ausp-atwrt,
+      idnrk_apl      TYPE stpo-idnrk,
+      prev_org       TYPE zrnppt_prev-peso,  "Previsao Mes
+      prev_org1      TYPE zrnppt_prev-peso,  "Previsao Mes + 1
+      prev_org2      TYPE zrnppt_prev-peso,  "Previsao Mes + 2
+      log            TYPE ze_log_petiq,
+      xloek          TYPE xloek,
+      ersda          TYPE zppt_lotes_aplic-ersda,
+      rank           TYPE i,
+      regio          TYPE t001w-regio,
+      regio_apl      TYPE t001w-regio,
+      lgort_apl      TYPE mard-lgort,
+    END OF ty_rank,
+
+    BEGIN OF ty_mp_excesso,
+      matnr TYPE zppt_mp_excesso-matnr,
+      labst TYPE zppt_mp_excesso-labst,
+      saldo TYPE zppt_mp_excesso-labst,
+    END OF ty_mp_excesso,
+
+    BEGIN OF ty_mp_falta,
+      matnr TYPE zppt_mp_falta-matnr,
+      bdmng TYPE zppt_mp_falta-bdmng,
+*          rankm TYPE zppt_mp_falta-rankm,
+      rpdse TYPE zppt_mp_falta-rpdse,
+      giroe TYPE zppt_mp_falta-giroe,
+      pltes TYPE zppt_mp_falta-pltes,
+      saldo TYPE zppt_mp_falta-bdmng,
+    END OF ty_mp_falta.
+
+  DATA: lit_zppt_pajt TYPE TABLE OF zppt_pajt,
+        lwa_zppt_pajt TYPE zppt_pajt.
+
+  DATA: lit_rank TYPE TABLE OF ty_rank,
+        lwa_rank TYPE ty_rank.
+
+  DATA: lit_tp_planta TYPE TABLE OF zppt_tp_planta,
+        lwa_tp_planta TYPE zppt_tp_planta.
+
+  DATA: lit_gi TYPE TABLE OF zppt_gi,
+        lwa_gi TYPE zppt_gi.
+
+  DATA: lit_mp_excesso TYPE TABLE OF ty_mp_excesso,
+        lwa_mp_excesso TYPE ty_mp_excesso.
+
+  DATA: lit_mp_falta TYPE TABLE OF ty_mp_falta,
+        lwa_mp_falta TYPE ty_mp_falta.
+
+* Início inclusão - 17.03.2023 - PRJ1372 - 5113
+  DATA: t_zppt_oest  TYPE TABLE OF zppt_oest WITH HEADER LINE,
+        w_mp_excesso TYPE zppt_mp_excesso,
+        v_tabix      LIKE sy-tabix,
+        v_clabs      TYPE zppt_oest-clabs.
+* Fim inclusão - 17.03.2023 - PRJ1372 - 5113
+
+  DATA: lit_t001w TYPE TABLE OF t001w,
+        lwa_t001w TYPE t001w.
+
+*PM - Capabilidade - PRJ1372 - 15.03.2022
+*  DATA: lv_charg_sd_diametro_interno   TYPE atflv,
+*        lv_charg_sd_diametro_externo   TYPE atflv,
+*        lv_charg_pdr_consulta_metal    TYPE atwrt,
+*        lv_matnr_pdr_consulta_metal    TYPE atwrt,
+*        lv_matnr_sd_hierarquia_produto TYPE atwrt,
+*        lv_charg_sd_lim_resistencia    TYPE atflv,
+*        lv_charg_comp                  TYPE atflv,
+*        lv_charg_laminacao             TYPE atwtb,
+*        lv_tipo_certificado            TYPE vbap-mvgr1,
+*        lv_matnr_produto               TYPE atwtb,
+*        lv_charg_produto               TYPE atwtb,
+*        lv_matches                     TYPE c,
+*        lv_restrito                    TYPE c.
+*
+*  DATA: lwa_caract_matnr LIKE LINE OF it_caract_matnr,
+*        lwa_caract_charg LIKE LINE OF it_caract_charg.
+*
+*  SORT: it_caract_charg BY matnr charg atnam,
+*        it_caract_matnr BY matnr atnam.
+*PM - Capabilidade - PRJ1372 - 15.03.2022
+
+  SELECT werks regio
+    INTO CORRESPONDING FIELDS OF TABLE lit_t001w
+    FROM t001w.
+
+  SELECT *
+    INTO TABLE lit_tp_planta
+    FROM zppt_tp_planta.
+
+  SORT lit_tp_planta BY werks werks_camb.
+
+  SELECT *
+    INTO TABLE lit_zppt_pajt
+    FROM zppt_pajt
+    WHERE cprog EQ sy-cprog
+*     AND ernam EQ 'JOBTNG1'  " RDM 324713 - Sandra H. - 10/01/2025
+     AND ( ernam EQ 'JOBTNG1' OR ernam EQ 'JOBTNG2').
+
+
+* início RDM RDM 324713 - Sandra H. - 10/01/2025 - não considerar material com saldo 'zero'
+  SELECT matnr, werks, lgort, charg, clabs
+   INTO TABLE @DATA(lt_mchb)
+   FROM mchb
+   FOR ALL ENTRIES IN @lit_zppt_pajt
+    WHERE matnr EQ @lit_zppt_pajt-matnr
+    AND   werks EQ @lit_zppt_pajt-werks
+    AND   lgort EQ @lit_zppt_pajt-lgort
+    AND   charg EQ @lit_zppt_pajt-charg
+    AND   clabs EQ 0.
+
+  LOOP AT lit_zppt_pajt INTO lwa_zppt_pajt.
+    v_tabix = sy-tabix.
+    READ TABLE lt_mchb WITH KEY matnr = lwa_zppt_pajt-matnr
+                                werks = lwa_zppt_pajt-werks
+                                lgort = lwa_zppt_pajt-lgort
+                                charg = lwa_zppt_pajt-charg TRANSPORTING NO FIELDS.
+    IF sy-subrc EQ 0.
+      DELETE lit_zppt_pajt INDEX v_tabix.
+      CLEAR lwa_zppt_pajt.
+    ENDIF.
+  ENDLOOP.
+* Fim RDM RDM 324713 - Sandra H. - 10/01/2025 - não considerar material com saldo 'zero'
+
+  SELECT matnr werks lgort charg clabs ersda
+    INTO CORRESPONDING FIELDS OF TABLE it_mchbcar
+    FROM zppt_lotes_aplic.
+  SORT it_mchbcar BY matnr charg.
+
+* Stefanini/Elaine Omine - PRJ1372 - 26/07/2023 - Início
+  IF lit_zppt_pajt IS NOT INITIAL.
+    SELECT stlty, stlnr, stlkn, stpoz, datuv, idnrk
+      FROM stpo
+      INTO TABLE @DATA(tl_stpo)
+       FOR ALL ENTRIES IN @lit_zppt_pajt
+     WHERE idnrk EQ @lit_zppt_pajt-matnr.
+    IF sy-subrc EQ 0.
+      SORT tl_stpo BY idnrk datuv DESCENDING.
+      DELETE ADJACENT DUPLICATES FROM tl_stpo COMPARING idnrk.
+
+      SELECT stlty, stlnr, stlal, stlkn, stasz, datuv
+        FROM stas
+        INTO TABLE @DATA(tl_stas)
+         FOR ALL ENTRIES IN @tl_stpo
+       WHERE stlty EQ @tl_stpo-stlty
+         AND stlnr EQ @tl_stpo-stlnr
+         AND stlkn EQ @tl_stpo-stlkn.
+      IF sy-subrc EQ 0.
+        SORT tl_stas BY stlty stlnr stlkn datuv DESCENDING.
+        DELETE ADJACENT DUPLICATES FROM tl_stas COMPARING stlty stlnr stlkn .
+
+        SELECT matnr, werks, stlan, stlnr, stlal
+          FROM mast
+          INTO TABLE @DATA(tl_mast)
+           FOR ALL ENTRIES IN @tl_stas
+         WHERE stlnr EQ @tl_stas-stlnr
+           AND stlal EQ @tl_stas-stlal.
+      ENDIF.
+    ENDIF.
+    DATA(tl_mast_54) = tl_mast.
+    DELETE tl_mast_54 WHERE matnr NP '54*'.
+    IF tl_mast_54 IS NOT INITIAL.
+      SELECT stlty, stlnr, stlkn, stpoz, datuv, idnrk
+        FROM stpo
+        INTO TABLE @DATA(tl_stpo_2)
+         FOR ALL ENTRIES IN @tl_mast_54
+       WHERE idnrk EQ @tl_mast_54-matnr.
+      IF sy-subrc EQ 0.
+        SORT tl_stpo_2 BY idnrk datuv DESCENDING.
+        DELETE ADJACENT DUPLICATES FROM tl_stpo_2 COMPARING idnrk.
+
+        SELECT stlty, stlnr, stlal, stlkn, stasz, datuv
+          FROM stas
+          INTO TABLE @DATA(tl_stas_2)
+           FOR ALL ENTRIES IN @tl_stpo_2
+         WHERE stlty EQ @tl_stpo_2-stlty
+           AND stlnr EQ @tl_stpo_2-stlnr
+           AND stlkn EQ @tl_stpo_2-stlkn.
+        IF sy-subrc EQ 0.
+          SORT tl_stas_2 BY stlty stlnr stlkn datuv DESCENDING.
+          DELETE ADJACENT DUPLICATES FROM tl_stas_2 COMPARING stlty stlnr stlkn .
+
+          SELECT matnr, werks, stlan, stlnr, stlal
+            FROM mast
+            INTO TABLE @DATA(tl_mast_2)
+             FOR ALL ENTRIES IN @tl_stas_2
+           WHERE stlnr EQ @tl_stas_2-stlnr
+             AND stlal EQ @tl_stas_2-stlal.
+        ENDIF.
+      ENDIF.
+    ENDIF.
+    SORT: tl_stpo   BY idnrk,
+          tl_stas   BY stlty stlnr stlkn,
+          tl_mast   BY stlnr stlal,
+          tl_stpo_2 BY idnrk,
+          tl_stas_2 BY stlty stlnr stlkn,
+          tl_mast_2 BY stlnr stlal.
+  ENDIF.
+  IF lit_zppt_pajt IS NOT INITIAL.
+    SELECT matnr, lgort
+      FROM mard
+      INTO TABLE @DATA(tl_mard)
+       FOR ALL ENTRIES IN @lit_zppt_pajt
+     WHERE matnr EQ @lit_zppt_pajt-matnr_apl.
+    SORT tl_mard BY matnr.
+  ENDIF.
+* Stefanini/Elaine Omine - PRJ1372 - 26/07/2023 - Fim
+
+  SORT it_zrnppt_prev BY matnr werks.
+
+  LOOP AT lit_zppt_pajt INTO lwa_zppt_pajt.
+
+    MOVE-CORRESPONDING lwa_zppt_pajt TO lwa_rank.
+    MOVE lwa_zppt_pajt-lgort_apl TO lwa_rank-lgort_apl.
+
+    IF lwa_rank-lgort_apl IS INITIAL.
+*     Stefanini/Elaine Omine - PRJ1372 - 14/08/2023 - Início
+*      SELECT SINGLE lgort
+*        FROM mard
+*        INTO lwa_rank-lgort_apl
+*        WHERE matnr = lwa_zppt_pajt-matnr_apl.
+      lwa_rank-lgort_apl = VALUE #( tl_mard[ matnr = lwa_zppt_pajt-matnr_apl ]-lgort OPTIONAL ).
+*     Stefanini/Elaine Omine - PRJ1372 - 14/08/2023 - Fim
+    ENDIF.
+
+    READ TABLE lit_t001w WITH KEY werks = lwa_zppt_pajt-werks
+                                  INTO lwa_t001w.
+    IF sy-subrc IS INITIAL.
+      lwa_rank-regio = lwa_t001w-regio.
+    ENDIF.
+
+    READ TABLE lit_t001w WITH KEY werks = lwa_zppt_pajt-werks_apl
+                                  INTO lwa_t001w.
+    IF sy-subrc IS INITIAL.
+      lwa_rank-regio_apl = lwa_t001w-regio.
+    ENDIF.
+
+    READ TABLE it_mchbcar WITH KEY werks = lwa_zppt_pajt-werks
+                                   charg = lwa_zppt_pajt-charg
+                                   INTO wa_mchbcar.
+
+    IF sy-subrc IS INITIAL.
+      lwa_rank-ersda = wa_mchbcar-ersda.
+    ENDIF.
+
+    "Atribuir ranking para cada sugestão de alternativo
+    "1. mesmo Deposito e Centro
+    IF lwa_zppt_pajt-werks EQ lwa_zppt_pajt-werks_apl AND
+       lwa_zppt_pajt-lgort EQ lwa_rank-lgort_apl.
+      lwa_rank-rank = 100.
+      "2. no mesmo Deposito
+    ELSEIF lwa_zppt_pajt-lgort EQ lwa_rank-lgort_apl.
+      lwa_rank-rank = 90.
+      "3. mesmo Centro
+    ELSEIF lwa_zppt_pajt-werks EQ lwa_zppt_pajt-werks_apl.
+      lwa_rank-rank = 80.
+      "4. mesmo Estado
+    ELSEIF lwa_rank-regio EQ lwa_rank-regio_apl.
+      lwa_rank-rank = 70.
+*      READ TABLE lit_tp_planta WITH KEY werks       = lwa_zppt_pajt-werks_apl   "Centro do SKU com necessidade
+*                                        werks_camb  = lwa_zppt_pajt-werks       "Centro do Lote
+*                                        INTO lwa_tp_planta.
+*      IF sy-subrc IS INITIAL.
+*        lwa_rank-rank = 10.
+*      ENDIF.
+    ENDIF.
+
+    APPEND lwa_rank TO lit_rank.
+    CLEAR lwa_rank.
+
+  ENDLOOP.
+
+  SELECT *
+    INTO TABLE lit_gi
+    FROM  zppt_gi
+* inicio RDM 324713 - EXCLUIR O ITENS COM EXCESSO NEGATIVO
+    WHERE excesso GT 0.
+* fim RDM 324713 - EXCLUIR O ITENS COM EXCESSO NEGATIVO
+
+  SORT lit_gi BY matnr.
+* Stefanini/Elaine Omine - PRJ1372 - 12/09/2023 - Início
+  gv_decendio = VALUE #( lit_gi[ 1 ]-decendio OPTIONAL ).
+* Stefanini/Elaine Omine - PRJ1372 - 12/09/2023 - Fim
+
+* Stefanini/Elaine Omine - PRJ1372 - 14/08/2023 - Início
+  SELECT *
+    FROM zppt_oest
+    INTO TABLE t_zppt_oest.
+
+  SORT t_zppt_oest BY werks matnr charg werks_apl matnr_apl.
+  DELETE ADJACENT DUPLICATES FROM t_zppt_oest COMPARING werks matnr charg werks_apl matnr_apl.
+* Stefanini/Elaine Omine - PRJ1372 - 14/08/2023 - Fim
+
+  SELECT matnr labst labst
+    INTO TABLE lit_mp_excesso
+    FROM zppt_mp_excesso.
+
+* Stefanini/Elaine Omine - PRJ1372 - 14/08/2023 - Início
+  LOOP AT lit_mp_excesso INTO DATA(wl_mp_excesso).
+
+    v_tabix = sy-tabix.
+
+    CLEAR v_clabs.
+
+    LOOP AT t_zppt_oest WHERE matnr EQ wl_mp_excesso-matnr.
+      v_clabs = v_clabs + t_zppt_oest-clabs.
+    ENDLOOP.
+
+    wl_mp_excesso-labst = wl_mp_excesso-labst - v_clabs.
+
+    IF wl_mp_excesso-labst LE 0.
+      DELETE lit_mp_excesso INDEX v_tabix.
+    ENDIF.
+
+  ENDLOOP.
+* Stefanini/Elaine Omine - PRJ1372 - 14/08/2023 - Fim
+
+  SELECT *
+    INTO CORRESPONDING FIELDS OF TABLE lit_mp_falta
+    FROM zppt_mp_falta.
+
+*Início inclusão - 17.03.2023 - PRJ1372 - 5113
+  IF sy-subrc IS INITIAL.
+
+*    FREE t_zppt_oest.
+*
+*    SELECT * FROM zppt_oest
+*           INTO TABLE t_zppt_oest.
+*
+*    SORT t_zppt_oest BY werks matnr charg werks_apl matnr_apl.
+*    DELETE ADJACENT DUPLICATES FROM t_zppt_oest COMPARING werks matnr charg werks_apl matnr_apl.
+
+    LOOP AT lit_mp_falta INTO lwa_mp_falta.
+
+      v_tabix = sy-tabix.
+
+      CLEAR v_clabs.
+
+*     Stefanini/Elaine Omine - PRJ1372 - 14/08/2023 - Início
+*      LOOP AT t_zppt_oest WHERE matnr EQ w_mp_excesso-matnr.
+      LOOP AT t_zppt_oest WHERE matnr EQ lwa_mp_falta-matnr.
+*     Stefanini/Elaine Omine - PRJ1372 - 14/08/2023 - Fim
+
+        v_clabs = v_clabs + t_zppt_oest-clabs.
+
+      ENDLOOP.
+
+      lwa_mp_falta-bdmng = lwa_mp_falta-bdmng - v_clabs.
+
+      IF lwa_mp_falta-bdmng LE 0.
+
+        DELETE lit_mp_falta INDEX v_tabix.
+
+      ENDIF.
+
+    ENDLOOP.
+
+  ENDIF.
+* Fim inclusão - 17.03.2023 - PRJ1372 - 5113
+
+  "2. ordenar MP de acordo com o Rank
+*  SORT lit_mp_falta BY rankm DESCENDING.
+  "Priorização da aplicação dos SKUs:
+  "1. Materiais com demanda e sem estoque
+  "2. MP com maior giro de estoque (quanto menor o resultado, é mais rapido o consumo)
+  "3. MP de menor politica de estoque
+  SORT lit_mp_falta BY rpdse DESCENDING giroe DESCENDING pltes DESCENDING.
+
+  "3. ordenar as possibilidades de aplicação por RANK e FIFO.
+  SORT lit_rank BY rank DESCENDING ersda ASCENDING idnrk_apl charg ASCENDING.
+
+  "4. apagar os registros duplicados por MP EM FALTA e Lote (devido replicacao para todos os 34k da mesma MP EM FALTA)
+  DELETE ADJACENT DUPLICATES FROM lit_rank COMPARING idnrk_apl charg.
+
+  "5. aplicar o match de acordo com o limite a ceder de cada MP COM EXCESSO
+  LOOP AT lit_mp_falta INTO lwa_mp_falta.
+
+    LOOP AT lit_rank INTO lwa_rank WHERE idnrk_apl = lwa_mp_falta-matnr.
+
+      gv_tabix = sy-tabix.
+
+      CLEAR lwa_mp_excesso.
+      READ TABLE lit_mp_excesso INTO lwa_mp_excesso WITH KEY matnr = lwa_rank-matnr.
+      IF sy-subrc IS INITIAL.
+        IF lwa_rank-clabs GT lwa_mp_excesso-saldo.
+          CONTINUE.
+        ELSE.
+          lwa_mp_excesso-saldo = lwa_mp_excesso-saldo - lwa_rank-clabs.
+          MODIFY lit_mp_excesso FROM lwa_mp_excesso INDEX sy-tabix.
+        ENDIF.
+      ENDIF.
+
+      "replicar a MP EM EXCESSO para todos os SKUs da MP EM FALTA
+      LOOP AT lit_zppt_pajt INTO lwa_zppt_pajt WHERE matnr      = lwa_rank-matnr
+                                                 AND charg      = lwa_rank-charg
+                                                 AND idnrk_apl  = lwa_rank-idnrk_apl.
+        MOVE-CORRESPONDING lwa_zppt_pajt TO wa_outtab.
+
+*PM - Capabilidade - PRJ1372 - 15.03.2022
+        CASE lwa_zppt_pajt-tpmesag.
+          WHEN '1'.
+            APPEND wa_outtab TO gt_outtab1.
+          WHEN '2'.
+            APPEND wa_outtab TO gt_outtab2.
+          WHEN '3'.
+            APPEND wa_outtab TO gt_outtab3.
+        ENDCASE.
+*
+**        READ TABLE it_mchbcar WITH KEY werks = lwa_zppt_pajt-werks
+**                                       charg = lwa_zppt_pajt-charg
+**                                       INTO wa_mchbcar.
+**
+**        READ TABLE it_marc INTO wa_marc WITH KEY werks = lwa_rank-werks_apl
+**                                                 matnr = lwa_rank-matnr_apl
+***                                                Stefanini/Elaine Omine - 19/07/2023 - Início
+**                                                 BINARY SEARCH.
+***                                                Stefanini/Elaine Omine - 19/07/2023 - Fim
+**
+**        CALL FUNCTION 'ZQMF_TIPO_CERTIFICADO'
+**          EXPORTING
+**            i_werks                  = wa_marc-werks
+**            i_matnr                  = wa_marc-matnr
+**          IMPORTING
+**            e_mvgr1                  = lv_tipo_certificado
+**          EXCEPTIONS
+**            ov_item_nao_existe       = 1
+**            material_nao_existe      = 2
+**            informar_item_ov         = 3
+**            material_ov_divergente   = 4
+**            centro_ov_divergente     = 5
+**            informar_centro          = 6
+**            informar_material        = 7
+**            informar_ov              = 8
+**            tipo_nao_encontrado      = 9
+**            estrategia_nao_encontrad = 10
+**            OTHERS                   = 11.
+*
+**        CLEAR: lwa_caract_charg.
+**        READ TABLE it_caract_charg WITH KEY matnr = wa_mchbcar-matnr
+**                                            charg = wa_mchbcar-charg
+**                                            atnam = 'HIERARQ_05'
+**                                            BINARY SEARCH
+**                                            INTO lwa_caract_charg TRANSPORTING atwtb.
+**        lv_charg_produto = lwa_caract_charg-atwtb.
+**
+**        CLEAR: lwa_caract_charg.
+**        READ TABLE it_caract_charg WITH KEY matnr = wa_mchbcar-matnr
+**                                            charg = wa_mchbcar-charg
+**                                            atnam = 'HIERARQ_04'
+**                                            BINARY SEARCH
+**                                            INTO lwa_caract_charg TRANSPORTING atwtb.
+**        lv_charg_laminacao = lwa_caract_charg-atwtb.
+**
+**        CLEAR: lwa_caract_matnr.
+**        READ TABLE it_caract_matnr WITH KEY matnr = wa_marc-matnr
+**                                            atnam = 'HIERARQ_05'
+**                                            BINARY SEARCH
+**                                            INTO lwa_caract_matnr TRANSPORTING atwtb.
+**        lv_matnr_produto = lwa_caract_matnr-atwtb.
+**
+**        CLEAR lwa_caract_charg.
+**        READ TABLE it_caract_charg WITH KEY matnr = wa_mchbcar-matnr
+**                                            charg = wa_mchbcar-charg
+**                                            atnam = 'SD_DIAMETRO_INTERNO'
+**                                            BINARY SEARCH
+**                                            INTO lwa_caract_charg TRANSPORTING atflv.
+**        lv_charg_sd_diametro_interno = lwa_caract_charg-atflv.
+**
+**        CLEAR lwa_caract_charg.
+**        READ TABLE it_caract_charg WITH KEY matnr = wa_mchbcar-matnr
+**                                            charg = wa_mchbcar-charg
+**                                            atnam = 'SD_DIAMETRO_EXTERNO'
+**                                            BINARY SEARCH
+**                                            INTO lwa_caract_charg TRANSPORTING atflv.
+**        lv_charg_sd_diametro_externo = lwa_caract_charg-atflv.
+**
+**        CLEAR lwa_caract_charg.
+**        READ TABLE it_caract_charg WITH KEY matnr = wa_mchbcar-matnr
+**                                            charg = wa_mchbcar-charg
+**                                            atnam = 'PDR_CONSULTA_METALURGICA'
+**                                            BINARY SEARCH
+**                                            INTO lwa_caract_charg TRANSPORTING atwrt.
+**        lv_charg_pdr_consulta_metal = lwa_caract_charg-atwrt.
+**
+**        CLEAR lwa_caract_charg.
+**        READ TABLE it_caract_charg WITH KEY matnr = wa_mchbcar-matnr
+**                                            charg = wa_mchbcar-charg
+**                                            atnam = 'SD_LIM_RESISTENCIA'
+**                                            BINARY SEARCH
+**                                            INTO lwa_caract_charg TRANSPORTING atflv.
+**        lv_charg_sd_lim_resistencia = lwa_caract_charg-atflv.
+**
+**        CLEAR lwa_caract_charg.
+**        READ TABLE it_caract_charg WITH KEY matnr = wa_mchbcar-matnr
+**                                            charg = wa_mchbcar-charg
+**                                            atnam = 'SD_COMPRIMENTO'
+**                                            BINARY SEARCH
+**                                            INTO lwa_caract_charg TRANSPORTING atflv.
+**        lv_charg_comp = lwa_caract_charg-atflv.
+**
+**        CLEAR lwa_caract_matnr.
+**        READ TABLE it_caract_matnr WITH KEY matnr = wa_marc-matnr
+**                                            atnam = 'PDR_CONSULTA_METALURGICA'
+**                                            INTO lwa_caract_matnr TRANSPORTING atwrt.
+**        lv_matnr_pdr_consulta_metal = lwa_caract_matnr-atwrt.
+*
+*        CLEAR lwa_caract_matnr.
+*        READ TABLE it_caract_matnr WITH KEY matnr = wa_marc-matnr
+*                                            atnam = 'SD_HIERARQUIA_PRODUTO'
+*                                            INTO lwa_caract_matnr TRANSPORTING atwrt.
+*        lv_matnr_sd_hierarquia_produto = lwa_caract_matnr-atwrt.
+*
+*        CLEAR it_result[].
+*        PERFORM f_consiste_capabilidade(zppr_processa_necessidade_mp)
+*          TABLES it_result
+*                 it_zppt_restr_entr
+*                 it_zqmt_restr_equip
+*                 it_zrnppt_prev_capa
+*                 it_zqmt_restr_cli
+*                 it_caract_matnr
+*                 it_zppt_restr_eqp_t
+*                 it_zppt_restr_eqp_l
+*                 it_mast
+*          USING wa_marc-werks
+*                wa_marc-matnr
+*                lv_matnr_produto
+*                lv_charg_produto
+*                lv_charg_laminacao
+*                lv_charg_sd_diametro_interno
+*                lv_charg_sd_diametro_externo
+*                lv_charg_pdr_consulta_metal
+*                lv_charg_sd_lim_resistencia
+*                lv_charg_comp
+*                wa_mchbcar
+*                lv_tipo_certificado
+*                lv_matnr_pdr_consulta_metal
+*                lv_matnr_sd_hierarquia_produto
+*          CHANGING lv_matches.
+
+*        LOOP AT it_result INTO wa_result.
+*
+*          wa_outtab-icon_stt  = icon_yellow_light.
+*          wa_outtab-log       = wa_result-log.
+*          wa_outtab-xloek     = wa_result-xloek.
+*
+*          IF wa_result-xloek EQ 'E'.
+*            wa_outtab-statustxt = 'CAPABILIDADE'.
+*          ELSEIF wa_result-xloek EQ 'C'.
+*            wa_outtab-statustxt = 'CAPABILIDADE'.
+*          ELSEIF wa_result-xloek EQ 'M'.
+*            wa_outtab-statustxt = 'CONSULTA'.
+*          ELSEIF wa_result-xloek EQ 'R'.
+*            wa_outtab-statustxt = 'CAPABILIDADE'.
+*          ELSEIF wa_result-xloek EQ 'A'.
+*            wa_outtab-statustxt = 'CERTIFICADO'.
+*          ENDIF.
+*
+*          APPEND wa_outtab TO gt_outtab2.
+*
+*        ENDLOOP.
+*PM - Capabilidade - PRJ1372 - 15.03.2022
+
+      ENDLOOP.
+
+      "remover outras possibilidades de aplicação do lote escolhido,
+      "para não ter indicação de um mesmo lote para duas aplicações diferentes
+      DELETE lit_rank WHERE matnr = lwa_rank-matnr
+                        AND charg = lwa_rank-charg.
+
+      lwa_mp_falta-saldo = lwa_mp_falta-saldo + lwa_rank-clabs.
+      IF lwa_mp_falta-bdmng LE lwa_mp_falta-saldo.
+        EXIT.
+      ENDIF.
+
+    ENDLOOP.
+
+  ENDLOOP.
+
+ENDFORM.                    " F_MATCH_ESTOQUE
+
+**&---------------------------------------------------------------------*
+**&      Form  F_CARREGA_RESULTADO_JOB
+**&---------------------------------------------------------------------*
+**       text
+**----------------------------------------------------------------------*
+*FORM f_carrega_resultado_job  USING p_uname.
+*
+*  DATA: lit_zppt_pajt TYPE TABLE OF zppt_pajt,
+*        lwa_zppt_pajt TYPE zppt_pajt.
+*
+*  DATA: lit_zppt_gi   TYPE TABLE OF zppt_gi,
+*        lwa_zppt_gi   TYPE zppt_gi.
+*
+*  SELECT *
+*    FROM zppt_pajt
+*    INTO TABLE lit_zppt_pajt
+*    WHERE cprog EQ sy-cprog
+*      AND ernam EQ p_uname.
+*
+*  SELECT *
+*    FROM zppt_gi
+*    INTO TABLE lit_zppt_gi.
+*  SORT lit_zppt_gi BY matnr.
+*
+*  REFRESH gt_outtab1.
+*
+*  LOOP AT lit_zppt_pajt INTO lwa_zppt_pajt.
+*    MOVE-CORRESPONDING lwa_zppt_pajt TO wa_outtab.
+*
+*    READ TABLE lit_zppt_gi INTO lwa_zppt_gi WITH KEY matnr = lwa_zppt_pajt-idnrk_apl
+*                                            BINARY SEARCH.
+*    IF sy-subrc IS INITIAL.
+*      wa_outtab-necessidade_mp = lwa_zppt_gi-necessidade.
+*    ENDIF.
+*
+*    IF wa_outtab-log IS INITIAL.
+*      APPEND wa_outtab TO gt_outtab1.
+*    ELSE.
+*      APPEND wa_outtab TO gt_outtab2.
+*    ENDIF.
+*    CLEAR wa_outtab.
+*  ENDLOOP.
+*
+*ENDFORM.                    " F_CARREGA_RESULTADO_JOB
+
+*&---------------------------------------------------------------------*
+*&      Form  F_GRAVA_IT_LOG_APLICACAO
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM f_grava_it_log_aplicacao  USING  p_idnrk_apl
+                                      p_matnr_apl
+                                      p_matnr
+                                      p_charg
+                                      p_erro.
+  "grava as aplicações que deram inconsistencia
+  wa_log_aplicacao-idnrk_apl  = p_idnrk_apl.      "MP com necessidade
+  wa_log_aplicacao-matnr      = p_matnr.          "Material do lote
+  wa_log_aplicacao-charg      = p_charg.          "Lote
+  COLLECT wa_log_aplicacao INTO it_log_aplicacao.
+
+  CLEAR wa_log_aplicacao.
+
+ENDFORM.                    " F_GRAVA_IT_LOG_APLICACAO
+
+
+*&---------------------------------------------------------------------*
+*&      Form  F_CONSISTE_CAPABILIDADE
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->P_WA_MARC_WERKS  text
+*      -->P_WA_MARC_MATNR  text
+*      -->P_WA_MCHBCAR  text
+*      -->P_LV_MATNR_PRODUTO  text
+*      -->P_LV_CHARG_PRODUTO  text
+*      -->P_LV_CHARG_LAMINACAO  text
+*      -->P_WA_MCHBCAR  text
+*      <--P_LV_MATCHES  text
+*----------------------------------------------------------------------*
+FORM f_consiste_capabilidade  TABLES pt_result
+                                     pt_zppt_restr_entr  STRUCTURE zppt_restr_entr
+                                     pt_zqmt_restr_equip STRUCTURE zqmt_restr_equip
+                                     pt_zrnppt_prev_capa STRUCTURE zrnppt_prev
+                                     pt_zqmt_restr_cli   STRUCTURE zqmt_restr_cli
+                                     pt_caract_matnr     STRUCTURE zrnmme_poa_caract_ma
+                                     pt_zppt_restr_eqp_t STRUCTURE zppt_restr_eqp_t
+                                     pt_zppt_restr_eqp_l STRUCTURE zppt_restr_eqp_l
+                                     pt_zppt_restr_eqp_p STRUCTURE zppt_restr_eqp_p
+                                     it_mast             STRUCTURE zqms_mast
+*                                    Stefanini/Elaine Omine - PRJ1372 - 18/09/2023 - Início
+                                     pt_zqmt_partnumber  STRUCTURE zqmt_partnumber
+*                                    Stefanini/Elaine Omine - PRJ1372 - 18/09/2023 - Fim
+                              USING    p_wa_marc_werks
+                                       p_wa_marc_matnr
+                                       p_matnr_produto
+                                       p_charg_produto
+                                       p_charg_laminacao
+*                                       p_charg_sd_diametro_interno
+*                                       p_charg_sd_diametro_externo
+                                       p_charg_pdr_consulta_metal
+*                                       p_charg_sd_lim_resistencia
+*                                      Stefanini/Elaine Omine - PRJ1372 - 07/08/2023 - Início
+*                                       p_charg_comp
+                                       p_matnr_comp
+                                       p_matnr_espessura
+                                       p_matnr_largura
+                                       p_matnr_laminacao
+*                                      Stefanini/Elaine Omine - PRJ1372 - 07/08/2023 - Fim
+                                       p_wa_mchbcar LIKE zrnsdt_mchbcar
+                                       p_tipo_certificado
+                                       p_mat_pdr_consulta_metal
+                                       p_matnr_sd_hierarquia_produto
+*                                      Stefanini/Elaine Omine - PRJ1372 - 03/08/2023 - Início
+                                       p_matnr_sd_diam_int_minimo
+                                       p_matnr_sd_diam_int_maximo
+                                       p_matnr_sd_diam_ext_minimo
+                                       p_matnr_sd_diam_ext_maximo
+                                       p_matnr_sd_lim_res_minima
+                                       p_matnr_sd_lim_res_maxima
+*                                      Stefanini/Elaine Omine - PRJ1372 - 03/08/2023 - Fim
+                                       p_lista_tecnica    TYPE ty_lista_tecnica
+                              CHANGING p_matches.
+
+*----------------------------------------------------------------------*
+* >>>>>>>>>>>>>>>>>>>>>          ATENÇÃO          <<<<<<<<<<<<<<<<<<<<<
+* CUIDADO AO EFETUAR MODIFICAÇÕES NESTE PERFORM, POIS ELE É CHAMADO
+* REMOTAMENTE NOS PROGRAMAS ZSUPPR_PESQUISA_APLICACAO_LOTE E
+* ZSUPPR_PESQUISA_MP_ALTERNATIVA
+*----------------------------------------------------------------------*
+
+  DATA: lv_ctrab_ref                   TYPE zppt_restr_entr-ctrab_ref,
+        lv_charg_produto_convert       TYPE zppt_restr_entr-tipo_prod,
+*       Stefanini/Elaine Omine - PRJ1372 - 02/08/2023 - Início
+        lv_matnr_produto_convert       TYPE zppt_restr_entr-tipo_prod,
+*       Stefanini/Elaine Omine - PRJ1372 - 02/08/2023 - Fim
+        lv_tipo_certificado            TYPE vbap-mvgr1,
+        lv_check_restricao             TYPE c,
+        lv_matnr_sd_hierarquia_produto TYPE atwrt,
+*       Stefanini/Elaine Omine - PRJ1372 - 07/08/2023 - Início
+        r_matnr_laminacao              TYPE RANGE OF zppt_restr_entr-lamin,
+*       Stefanini/Elaine Omine - PRJ1372 - 07/08/2023 - Fim
+        r_charg_laminacao              TYPE RANGE OF zppt_restr_entr-lamin,
+        rl_charg_laminacao             LIKE LINE OF r_charg_laminacao.
+
+  CLEAR: lv_charg_produto_convert, lv_check_restricao, r_matnr_laminacao[].
+
+  "Converter o campo P_CHARG_LAMINACAO
+  rl_charg_laminacao-sign = 'I'.
+  rl_charg_laminacao-option = 'EQ'.
+
+  CASE p_charg_laminacao.
+    WHEN 'LF'.
+
+      rl_charg_laminacao-low = 'E'.
+      APPEND rl_charg_laminacao TO r_charg_laminacao.
+
+      rl_charg_laminacao-low = 'LF'.
+      APPEND rl_charg_laminacao TO r_charg_laminacao.
+
+      rl_charg_laminacao-low = 'NR'.
+      APPEND rl_charg_laminacao TO r_charg_laminacao.
+
+    WHEN 'EG'.
+
+      rl_charg_laminacao-low = 'EG'.
+      APPEND rl_charg_laminacao TO r_charg_laminacao.
+
+    WHEN 'LQ'.
+
+      rl_charg_laminacao-low = 'G'.
+      APPEND rl_charg_laminacao TO r_charg_laminacao.
+
+      rl_charg_laminacao-low = 'GD'.
+      APPEND rl_charg_laminacao TO r_charg_laminacao.
+
+      rl_charg_laminacao-low = 'LQ'.
+      APPEND rl_charg_laminacao TO r_charg_laminacao.
+
+      rl_charg_laminacao-low = 'LQD'.
+      APPEND rl_charg_laminacao TO r_charg_laminacao.
+
+    WHEN 'CG'.
+
+      rl_charg_laminacao-low = 'GT'.
+      APPEND rl_charg_laminacao TO r_charg_laminacao.
+
+    WHEN 'Piso'.
+
+      rl_charg_laminacao-low = 'P'.
+      APPEND rl_charg_laminacao TO r_charg_laminacao.
+
+    WHEN 'ZC GI'.
+
+      rl_charg_laminacao-low = 'ZN'.
+      APPEND rl_charg_laminacao TO r_charg_laminacao.
+
+    WHEN 'ZC GA'.
+
+      rl_charg_laminacao-low = 'ZN'.
+      APPEND rl_charg_laminacao TO r_charg_laminacao.
+
+  ENDCASE.
+
+* Stefanini/Elaine Omine - PRJ1372 - 07/08/2023 - Início
+  CLEAR r_matnr_laminacao.
+  CASE p_matnr_laminacao.
+    WHEN 'LF'.
+      r_matnr_laminacao = VALUE #( sign = 'I' option = 'EQ' ( low = 'E' )
+                                                            ( low = 'LF' )
+                                                            ( low = 'NR' ) ).
+    WHEN 'EG'.
+      r_matnr_laminacao = VALUE #( sign = 'I' option = 'EQ' ( low = 'EG' ) ).
+    WHEN 'LQ'.
+      r_matnr_laminacao = VALUE #( sign = 'I' option = 'EQ' ( low = 'G')
+                                                            ( low = 'GD')
+                                                            ( low = 'LQ')
+                                                            ( low = 'LQD') ).
+    WHEN 'CG'.
+      r_matnr_laminacao = VALUE #( sign = 'I' option = 'EQ' ( low = 'GT' ) ).
+    WHEN 'Piso'.
+      r_matnr_laminacao = VALUE #( sign = 'I' option = 'EQ' ( low = 'P' ) ).
+    WHEN 'ZC GI' OR 'ZC GA'.
+      r_matnr_laminacao = VALUE #( sign = 'I' option = 'EQ' ( low = 'ZN' ) ).
+  ENDCASE.
+* Stefanini/Elaine Omine - PRJ1372 - 07/08/2023 - Fim
+
+* Stefanini/Elaine Omine - PRJ1372 - 01/08/2023 - Início
+*  TRANSLATE p_matnr_produto TO UPPER CASE.
+* Stefanini/Elaine Omine - PRJ1372 - 01/08/2023 - Fim
+
+* Stefanini/Elaine Omine - PRJ1372 - 28/07/2023 - Início
+  IF ( p_wa_mchbcar-werks EQ 'FA11' OR p_wa_mchbcar-werks EQ 'FA12' OR
+     p_wa_mchbcar-werks EQ 'RN01' OR p_wa_mchbcar-werks EQ 'RN02' OR
+     p_wa_mchbcar-werks EQ 'AT29' OR p_wa_mchbcar-werks EQ 'US15' OR
+     p_wa_mchbcar-werks EQ 'ZA08' OR p_wa_mchbcar-werks EQ 'ZA10' ). "AND  "GVCA20240506- Azure #4779
+*     p_wa_mchbcar-werks <> p_wa_marc_werks.                               "GVCA20240506- Azure #4779
+* Stefanini/Elaine Omine - PRJ1372 - 28/07/2023 - Fim
+
+* INICIO: 17Jul2024 - RDM 314427 - RGC8096
+    IF ( lv_matnr_produto_convert = 'BLANK I' OR  p_matnr_produto = 'PLATINA' ).
+
+      LOOP AT pt_zppt_restr_eqp_p TRANSPORTING NO FIELDS
+        WHERE lamin IN r_matnr_laminacao
+          AND tipo_prod    =  lv_matnr_produto_convert
+          AND werks        =  p_wa_mchbcar-werks
+          AND esp_in       <= p_matnr_espessura
+          AND esp_fin      >= p_matnr_espessura
+          AND lg_in        <= p_matnr_largura
+          AND lg_fin       >= p_matnr_largura
+          AND compr_min    <= p_matnr_comp
+          AND compr_max    >= p_matnr_comp
+          AND lim_resist   >= p_matnr_sd_lim_res_minima
+          AND lim_resist   >= p_matnr_sd_lim_res_maxima
+          AND desv_aplain_min >= p_wa_marc_matnr.
+
+        EXIT.
+
+      ENDLOOP.
+
+      IF sy-subrc NE 0.
+
+        p_matches = space.
+
+        MOVE-CORRESPONDING p_wa_mchbcar TO wa_result.
+
+        wa_result-werks_apl = p_wa_marc_werks.
+        wa_result-matnr_apl = p_wa_marc_matnr.
+        wa_result-idnrk_apl = p_lista_tecnica-idnrk.
+        wa_result-log       = 'Restrição de saída para uso de oleamento'.
+        wa_result-xloek     = 'E'.
+
+        APPEND wa_result TO pt_result.
+
+        CLEAR wa_result.
+
+      ENDIF.
+
+    ENDIF.
+* FIM: 17Jul2024 - RDM 314427 - RGC8096
+
+    IF p_charg_produto = 'Bobinas' OR  p_charg_produto = 'Rolo'.
+
+      "Converter o Charg_produto
+      IF p_charg_produto = 'Bobinas'.
+        lv_charg_produto_convert = 'BOBINA'.
+      ELSE.
+        lv_charg_produto_convert = 'ROLO'.
+      ENDIF.
+
+      "Verificar se existe restrição de equipamento
+      LOOP AT pt_zppt_restr_entr INTO DATA(ls_zppt_restr_entr) WHERE lamin        IN r_charg_laminacao
+                                                                 AND tipo_prod    =  lv_charg_produto_convert
+                                                                 AND werks        =  p_wa_mchbcar-werks
+                                                                 AND esp_ini      <= p_wa_mchbcar-espessura
+                                                                 AND esp_fin      >= p_wa_mchbcar-espessura
+                                                                 AND larg_ini     <= p_wa_mchbcar-largura
+                                                                 AND larg_fin     >= p_wa_mchbcar-largura
+*                                                                Stefanini/Elaine Omine - PRJ1372 - 28/07/2023 - Início
+*                                                                 AND diam_ext_ini <= p_charg_sd_diametro_externo
+*                                                                 AND diam_ext_fim >= p_charg_sd_diametro_externo
+*                                                                 AND diam_int_ini <= p_charg_sd_diametro_interno
+*                                                                 AND diam_int_fim >= p_charg_sd_diametro_interno
+*                                                                Stefanini/Elaine Omine - PRJ1372 - 28/07/2023 - Fim
+                                                                 AND peso_max     >= p_wa_mchbcar-clabs.
+        "Se não achou algum registro dar a mensagem a seguir
+        lv_check_restricao = 'X'.
+        CONTINUE.
+      ENDLOOP.
+
+      IF lv_check_restricao IS INITIAL.
+        p_matches = ''.
+        MOVE-CORRESPONDING p_wa_mchbcar TO wa_result.
+        wa_result-werks_apl = p_wa_marc_werks.
+        wa_result-matnr_apl = p_wa_marc_matnr.
+        wa_result-idnrk_apl = p_lista_tecnica-idnrk.
+        CONCATENATE 'Restrição de entrada para uso do equipamento' ls_zppt_restr_entr-ctrab_ref INTO wa_result-log SEPARATED BY space.
+        wa_result-xloek     = 'E'.
+        APPEND wa_result TO pt_result.
+        CLEAR wa_result.
+      ENDIF.
+
+    ELSE.
+
+      IF p_charg_produto = 'Blank'.
+        lv_charg_produto_convert = 'BLANK R'.
+      ELSE.
+        lv_charg_produto_convert = p_charg_produto.
+        TRANSLATE lv_charg_produto_convert TO UPPER CASE.
+      ENDIF.
+
+      "Verificar se existe restrição de equipamento
+      LOOP AT pt_zppt_restr_entr INTO ls_zppt_restr_entr WHERE lamin       IN r_charg_laminacao
+                                                           AND tipo_prod   =  lv_charg_produto_convert
+                                                           AND werks       =  p_wa_mchbcar-werks
+                                                           AND esp_ini     <= p_wa_mchbcar-espessura
+                                                           AND esp_fin     >= p_wa_mchbcar-espessura
+                                                           AND larg_ini    <= p_wa_mchbcar-largura
+                                                           AND larg_fin    >= p_wa_mchbcar-largura
+                                                           AND comprim_min <= wa_mchbcar-comprimento
+                                                           AND comprim_max >= wa_mchbcar-comprimento
+                                                           AND peso_max    >= p_wa_mchbcar-clabs.
+        "Se não achou algum registro dar a mensagem a seguir
+        lv_check_restricao = 'X'.
+        CONTINUE.
+      ENDLOOP.
+
+      IF lv_check_restricao IS INITIAL.
+        p_matches = ''.
+        MOVE-CORRESPONDING p_wa_mchbcar TO wa_result.
+        wa_result-werks_apl = p_wa_marc_werks.
+        wa_result-matnr_apl = p_wa_marc_matnr.
+        wa_result-idnrk_apl = p_lista_tecnica-idnrk.
+        CONCATENATE 'Restrição de entrada para uso do equipamento' ls_zppt_restr_entr-ctrab_ref INTO wa_result-log SEPARATED BY space.
+        wa_result-xloek     = 'E'.
+        APPEND wa_result TO pt_result.
+        CLEAR wa_result.
+      ENDIF.
+
+    ENDIF.
+  ENDIF.  "Stefanini/Elaine Omine - PRJ1372 - 28/07/2023
+
+* Stefanini/Elaine Omine - PRJ1372 - 02/08/2023 - Início
+*  "Converter o Charg_produto
+*  CLEAR lv_charg_produto_convert.
+*
+*  IF p_charg_produto = 'Bobinas'.
+*    lv_charg_produto_convert = 'BOBINA'.
+*  ELSEIF p_charg_produto = 'Rolo'.
+*    lv_charg_produto_convert = 'ROLO'.
+*  ELSEIF p_charg_produto = 'Blank'.
+*    lv_charg_produto_convert = 'BLANK R'.
+*  ELSE.
+*    lv_charg_produto_convert = p_charg_produto.
+*    TRANSLATE lv_charg_produto_convert TO UPPER CASE.
+*  ENDIF.
+*
+*  "Selecionar produtos restritos por planta
+*  READ TABLE pt_zqmt_restr_equip INTO DATA(ls_zqmt_restr_equip) WITH KEY werks = p_wa_mchbcar-werks
+*                                                                         tp_produto = p_matnr_produto
+*                                                                         BINARY SEARCH.
+
+  "Converter o Material
+  CLEAR lv_matnr_produto_convert.
+  IF p_matnr_produto = 'Bobinas'.
+    lv_matnr_produto_convert = 'BOBINA'.
+  ELSEIF p_matnr_produto = 'Rolo'.
+    lv_matnr_produto_convert = 'ROLO'.
+  ELSEIF p_matnr_produto = 'Blank'.
+    lv_matnr_produto_convert = 'BLANK R'.
+  ELSE.
+    lv_matnr_produto_convert = p_matnr_produto.
+    TRANSLATE lv_matnr_produto_convert TO UPPER CASE.
+  ENDIF.
+
+  "Selecionar produtos restritos por planta
+  READ TABLE pt_zqmt_restr_equip INTO DATA(ls_zqmt_restr_equip) WITH KEY werks      = p_wa_mchbcar-werks
+                                                                         tp_produto = lv_matnr_produto_convert
+                                                                         BINARY SEARCH.
+* Stefanini/Elaine Omine - PRJ1372 - 02/08/2023 - Fim
+  IF sy-subrc EQ 0 AND p_wa_marc_werks <> p_wa_mchbcar-werks.
+    p_matches = ''.
+    MOVE-CORRESPONDING p_wa_mchbcar TO wa_result.
+    wa_result-werks_apl = p_wa_marc_werks.
+    wa_result-matnr_apl = p_wa_marc_matnr.
+    wa_result-idnrk_apl = p_lista_tecnica-idnrk.
+    CONCATENATE 'Restrição de uso do produto na planta' p_wa_mchbcar-werks INTO wa_result-log SEPARATED BY space.
+    wa_result-xloek     = 'C'.
+    APPEND wa_result TO pt_result.
+    CLEAR wa_result.
+  ENDIF.
+
+  IF p_charg_pdr_consulta_metal = 'S' AND p_mat_pdr_consulta_metal <> 'S'.
+    p_matches = ''.
+    MOVE-CORRESPONDING p_wa_mchbcar TO wa_result.
+    wa_result-werks_apl = p_wa_marc_werks.
+    wa_result-matnr_apl = p_wa_marc_matnr.
+    wa_result-idnrk_apl = p_lista_tecnica-idnrk.
+    wa_result-log       = 'Consulta metalúrgica lote do material'.
+    wa_result-xloek     = 'M'.
+    APPEND wa_result TO pt_result.
+    CLEAR wa_result.
+  ELSEIF p_charg_pdr_consulta_metal = 'S' AND p_mat_pdr_consulta_metal = 'S'.
+    p_matches = ''.
+    MOVE-CORRESPONDING p_wa_mchbcar TO wa_result.
+    wa_result-werks_apl = p_wa_marc_werks.
+    wa_result-matnr_apl = p_wa_marc_matnr.
+    wa_result-idnrk_apl = p_lista_tecnica-idnrk.
+    wa_result-log       = 'Consulta metalúrgica em ambos os materiais'.
+    wa_result-xloek     = 'M'.
+    APPEND wa_result TO pt_result.
+    CLEAR wa_result.
+  ELSEIF p_charg_pdr_consulta_metal <> 'S' AND p_mat_pdr_consulta_metal = 'S'.
+    p_matches = ''.
+    MOVE-CORRESPONDING p_wa_mchbcar TO wa_result.
+    wa_result-werks_apl = p_wa_marc_werks.
+    wa_result-matnr_apl = p_wa_marc_matnr.
+    wa_result-idnrk_apl = p_lista_tecnica-idnrk.
+    wa_result-log       = 'Consulta metalúrgica material aplicado'.
+    wa_result-xloek     = 'M'.
+    APPEND wa_result TO pt_result.
+    CLEAR wa_result.
+  ENDIF.
+
+
+  "Analise da restrição de cliente
+  READ TABLE pt_zrnppt_prev_capa INTO DATA(ls_zrnppt_prev_capa) WITH KEY matnr = p_wa_marc_matnr
+                                                                         BINARY SEARCH.
+  IF sy-subrc EQ 0.
+
+    "Código de Cliente Bloqueado no Centro sem Material: Todos os Materiais desse código de cliente estão bloqueados.
+    READ TABLE pt_zqmt_restr_cli INTO DATA(ls_zqmt_restr_cli) WITH KEY werks    = p_wa_mchbcar-werks
+                                                                       kunnr    = ls_zrnppt_prev_capa-kunnr
+                                                                       bloqueio = 'BLQ'
+                                                                       matnr    = space BINARY SEARCH.
+    IF sy-subrc EQ 0.
+      p_matches = ''.
+      MOVE-CORRESPONDING p_wa_mchbcar TO wa_result.
+      wa_result-werks_apl = p_wa_marc_werks.
+      wa_result-matnr_apl = p_wa_marc_matnr.
+      wa_result-idnrk_apl = p_lista_tecnica-idnrk.
+*     Stefanini/Elaine Omine - PRJ1372 - 03/08/2023 - Início
+*      CONCATENATE 'Material do cliente' ls_zrnppt_prev_capa-kunnr 'bloqueado no centro' p_wa_mchbcar-werks
+*             INTO wa_result-log SEPARATED BY space.
+      wa_result-log = |{ ls_zrnppt_prev_capa-kunnr ALPHA = OUT }|.
+      wa_result-log = |Material do cliente { wa_result-log } - { ls_zrnppt_prev_capa-bismt } | &&
+                      |bloqueado no centro { p_wa_mchbcar-werks }|.
+*     Stefanini/Elaine Omine - PRJ1372 - 03/08/2023 - Fim
+      wa_result-xloek     = 'R'.
+      APPEND wa_result TO pt_result.
+      CLEAR wa_result.
+    ENDIF.
+
+    "Código de Cliente Bloqueado no Centro com Material: Apenas esse material desse código de cliente está bloqueado, restante está liberado.
+    READ TABLE pt_zqmt_restr_cli INTO ls_zqmt_restr_cli WITH KEY werks    = p_wa_mchbcar-werks
+                                                                 kunnr    = ls_zrnppt_prev_capa-kunnr
+                                                                 bloqueio = 'BLOQ'
+                                                                 matnr    = p_wa_mchbcar-matnr BINARY SEARCH.
+    IF sy-subrc EQ 0.
+      p_matches = ''.
+      MOVE-CORRESPONDING p_wa_mchbcar TO wa_result.
+      wa_result-werks_apl = p_wa_marc_werks.
+      wa_result-matnr_apl = p_wa_marc_matnr.
+      wa_result-idnrk_apl = p_lista_tecnica-idnrk.
+*     Stefanini/Elaine Omine - PRJ1372 - 03/08/2023 - Início
+*      CONCATENATE 'Material do cliente' ls_zrnppt_prev_capa-kunnr 'bloqueado em todos os centros'
+*             INTO wa_result-log SEPARATED BY space.
+      wa_result-log = |{ ls_zrnppt_prev_capa-kunnr ALPHA = OUT }|.
+      wa_result-log = |Material do cliente { wa_result-log } - { ls_zrnppt_prev_capa-bismt } | &&
+                      |bloqueado em todos os centros|.
+*     Stefanini/Elaine Omine - PRJ1372 - 03/08/2023 - Fim
+      wa_result-xloek     = 'R'.
+      APPEND wa_result TO pt_result.
+      CLEAR wa_result.
+    ENDIF.
+
+    "Código de Cliente Liberado no Centro com Material: Apenas esse material desse código de cliente está liberado.
+    READ TABLE pt_zqmt_restr_cli INTO ls_zqmt_restr_cli WITH KEY werks    =  p_wa_mchbcar-werks
+                                                                 kunnr    = ls_zrnppt_prev_capa-kunnr
+                                                                 bloqueio = 'LIB'.
+
+    IF sy-subrc EQ 0 AND ls_zqmt_restr_cli-matnr IS NOT INITIAL.
+      IF ls_zqmt_restr_cli-matnr = p_wa_mchbcar-matnr.
+        p_matches = ''.
+        MOVE-CORRESPONDING p_wa_mchbcar TO wa_result.
+        wa_result-werks_apl = p_wa_marc_werks.
+        wa_result-matnr_apl = p_wa_marc_matnr.
+        wa_result-idnrk_apl = p_lista_tecnica-idnrk.
+        wa_result-log       = 'Apenas esse material desse código de cliente está liberado'.
+        wa_result-xloek     = 'R'.
+        APPEND wa_result TO pt_result.
+        CLEAR wa_result.
+      ENDIF.
+    ENDIF.
+
+  ENDIF.
+
+* Stefanini/Elaine Omine - PRJ1372 - 27/07/2023 - Início
+*  IF p_tipo_certificado = 'UN' OR p_tipo_certificado = 'NT'.
+*    p_matches = ''.
+*    MOVE-CORRESPONDING p_wa_mchbcar TO wa_result.
+*    wa_result-werks_apl = p_wa_marc_werks.
+*    wa_result-matnr_apl = p_wa_marc_matnr.
+*    wa_result-log = 'Exige certificado de usina'.
+*    wa_result-xloek     = 'A'.
+*    APPEND wa_result TO pt_result.
+*    CLEAR wa_result.
+*  ENDIF.
+*
+*  "Verificar se existe restrição de equipamento
+*  LOOP AT pt_zppt_restr_eqp_t INTO DATA(ls_zppt_restr_eqp_t) WHERE lamin        IN r_charg_laminacao
+*                                                               AND tipo_prod    =  lv_charg_produto_convert
+*                                                               AND werks        =  p_wa_mchbcar-werks
+*                                                               AND esp_in       <= p_wa_mchbcar-espessura
+*                                                               AND esp_fin      >= p_wa_mchbcar-espessura
+*                                                               AND lg_in        <= p_wa_mchbcar-largura
+*                                                               AND lg_fin       >= p_wa_mchbcar-largura
+*                                                               AND compr_min    <= p_charg_comp
+*                                                               AND compr_max    >= p_charg_comp
+*                                                               AND lim_resist   <= p_charg_sd_lim_resistencia.
+*    p_matches = ''.
+*    MOVE-CORRESPONDING p_wa_mchbcar TO wa_result.
+*    wa_result-werks_apl = p_wa_marc_werks.
+*    wa_result-matnr_apl = p_wa_marc_matnr.
+*    CONCATENATE 'Restrição de saída para uso do equipamento' ls_zppt_restr_eqp_t-ctrab_ref INTO wa_result-log SEPARATED BY space.
+*    wa_result-xloek     = 'E'.
+*    APPEND wa_result TO pt_result.
+*    CLEAR wa_result.
+*    CONTINUE.
+*
+*  ENDLOOP.
+*
+*  "Verificar se existe restrição de equipamento
+*  LOOP AT pt_zppt_restr_eqp_l INTO DATA(ls_zppt_restr_eqp_l) WHERE lamin        IN r_charg_laminacao
+*                                                               AND tipo_prod    =  lv_charg_produto_convert
+*                                                               AND werks        =  p_wa_mchbcar-werks
+*                                                               AND esp_in       <= p_wa_mchbcar-espessura
+*                                                               AND esp_fin      >= p_wa_mchbcar-espessura
+*                                                               AND lg_in        <= p_wa_mchbcar-largura
+*                                                               AND lg_fin       >= p_wa_mchbcar-largura
+*                                                               AND diam_ext_min <= p_charg_sd_diametro_externo
+*                                                               AND diam_ext_max >= p_charg_sd_diametro_externo
+*                                                               AND diam_int_min <= p_charg_sd_diametro_interno
+*                                                               AND diam_int_max >= p_charg_sd_diametro_interno
+*                                                               AND lim_resist   <= p_charg_sd_lim_resistencia.
+*    p_matches = ''.
+*    MOVE-CORRESPONDING p_wa_mchbcar TO wa_result.
+*    wa_result-werks_apl = p_wa_marc_werks.
+*    wa_result-matnr_apl = p_wa_marc_matnr.
+*    CONCATENATE 'Restrição de saída para uso do equipamento' ls_zppt_restr_eqp_l-ctrab_ref INTO wa_result-log SEPARATED BY space.
+*    wa_result-xloek     = 'E'.
+*    APPEND wa_result TO pt_result.
+*    CLEAR wa_result.
+*    CONTINUE.
+*
+*  ENDLOOP.
+  IF ( p_wa_mchbcar-werks EQ 'FA11' OR p_wa_mchbcar-werks EQ 'FA12' OR
+     p_wa_mchbcar-werks EQ 'RN01' OR p_wa_mchbcar-werks EQ 'RN02' OR
+     p_wa_mchbcar-werks EQ 'AT29' OR p_wa_mchbcar-werks EQ 'US15' OR
+     p_wa_mchbcar-werks EQ 'ZA08' OR p_wa_mchbcar-werks EQ 'ZA10' ) AND
+     p_wa_mchbcar-werks <> p_wa_marc_werks.
+
+* AQUI
+
+* INICIO: 11Jul2024 - RDM 314427 - RGC8096
+    IF ( lv_matnr_produto_convert = 'BLANK I' OR  p_matnr_produto = 'PLATINA' ).
+
+      LOOP AT pt_zppt_restr_eqp_p TRANSPORTING NO FIELDS
+        WHERE lamin IN r_matnr_laminacao
+          AND tipo_prod    =  lv_matnr_produto_convert
+          AND werks        =  p_wa_mchbcar-werks
+          AND esp_in       <= p_matnr_espessura
+          AND esp_fin      >= p_matnr_espessura
+          AND lg_in        <= p_matnr_largura
+          AND lg_fin       >= p_matnr_largura
+          AND compr_min    <= p_matnr_comp
+          AND compr_max    >= p_matnr_comp
+          AND lim_resist   >= p_matnr_sd_lim_res_minima
+          AND lim_resist   >= p_matnr_sd_lim_res_maxima
+          AND desv_aplain_min >= p_wa_marc_matnr.
+
+        EXIT.
+
+      ENDLOOP.
+
+      IF sy-subrc NE 0.
+
+        p_matches = space.
+
+        MOVE-CORRESPONDING p_wa_mchbcar TO wa_result.
+
+        wa_result-werks_apl = p_wa_marc_werks.
+        wa_result-matnr_apl = p_wa_marc_matnr.
+        wa_result-idnrk_apl = p_lista_tecnica-idnrk.
+        wa_result-log       = 'Restrição de saída para uso do equipamento'.
+        wa_result-xloek     = 'E'.
+
+        APPEND wa_result TO pt_result.
+
+        CLEAR wa_result.
+
+      ENDIF.
+
+    ENDIF.
+* FIM: 11Jul2024 - RDM 314427 - RGC8096
+
+*   Stefanini/Elaine Omine - PRJ1372 - 18/09/2023 - Início
+    IF p_matnr_produto = 'Blank'.
+      READ TABLE pt_zqmt_partnumber INTO DATA(wl_partnumber) WITH KEY matnr_antigo = p_wa_marc_matnr.
+      IF sy-subrc EQ 0.
+        lv_matnr_produto_convert = wl_partnumber-tp_produto.
+      ELSE.
+        READ TABLE pt_caract_matnr INTO DATA(wl_caract_matnr) WITH KEY matnr = p_wa_marc_matnr
+                                                                       atnam = 'HIERARQ_08'
+                                                                       BINARY SEARCH.
+        IF sy-subrc EQ 0.
+          IF wl_caract_matnr-atwtb EQ 'Irregular'.
+            lv_matnr_produto_convert = 'BLANK I'.
+          ELSEIF wl_caract_matnr-atwtb EQ 'Regular'.
+            lv_matnr_produto_convert = 'BLANK R'.
+          ENDIF.
+        ENDIF.
+      ENDIF.
+    ENDIF.
+*   Stefanini/Elaine Omine - PRJ1372 - 18/09/2023 - Fim
+
+    "Verificar se existe restrição de equipamento
+
+    LOOP AT pt_zppt_restr_eqp_t TRANSPORTING NO FIELDS WHERE lamin        IN r_matnr_laminacao
+                                                         AND tipo_prod    =  lv_matnr_produto_convert
+                                                         AND werks        =  p_wa_mchbcar-werks
+                                                         AND esp_in       <= p_matnr_espessura
+                                                         AND esp_fin      >= p_matnr_espessura
+                                                         AND lg_in        <= p_matnr_largura
+                                                         AND lg_fin       >= p_matnr_largura
+                                                         AND compr_min    <= p_matnr_comp
+                                                         AND compr_max    >= p_matnr_comp
+                                                         AND lim_resist   >= p_matnr_sd_lim_res_minima
+                                                         AND lim_resist   >= p_matnr_sd_lim_res_maxima. "se lim max = 9999, está sendo substituído por 0 antes do perform
+      EXIT.
+    ENDLOOP.
+    IF sy-subrc NE 0.
+      "Verificar se existe restrição de equipamento
+      LOOP AT pt_zppt_restr_eqp_l TRANSPORTING NO FIELDS WHERE lamin        IN r_matnr_laminacao
+                                                           AND tipo_prod    =  lv_matnr_produto_convert
+                                                           AND werks        =  p_wa_mchbcar-werks
+                                                           AND esp_in       <= p_matnr_espessura
+                                                           AND esp_fin      >= p_matnr_espessura
+                                                           AND lg_in        <= p_matnr_largura
+                                                           AND lg_fin       >= p_matnr_largura
+                                                           AND diam_ext_min <= p_matnr_sd_diam_ext_minimo
+                                                           AND diam_ext_max >= p_matnr_sd_diam_ext_maximo
+*                                                           AND diam_int_min >= p_matnr_sd_diam_int_minimo
+*                                                           AND diam_int_max <= p_matnr_sd_diam_int_maximo
+                                                           AND ( diam_int_min >= p_matnr_sd_diam_int_minimo OR
+                                                                 diam_int_max <= p_matnr_sd_diam_int_maximo )
+                                                           AND lim_resist   >= p_matnr_sd_lim_res_minima
+                                                           AND lim_resist   >= p_matnr_sd_lim_res_maxima. "se lim max = 9999, está sendo substituído por 0 antes do perform
+        EXIT.
+      ENDLOOP.
+      IF sy-subrc NE 0.
+        p_matches = ''.
+        MOVE-CORRESPONDING p_wa_mchbcar TO wa_result.
+        wa_result-werks_apl = p_wa_marc_werks.
+        wa_result-matnr_apl = p_wa_marc_matnr.
+        wa_result-idnrk_apl = p_lista_tecnica-idnrk.
+        wa_result-log       = 'Restrição de saída para uso do equipamento'.
+        wa_result-xloek     = 'E'.
+        APPEND wa_result TO pt_result.
+        CLEAR wa_result.
+      ENDIF.
+    ENDIF.
+  ENDIF.
+* Stefanini/Elaine Omine - PRJ1372 - 27/07/2023 - Fim
+
+  "Consistir solda na capabilidade do material
+  CLEAR lv_matnr_sd_hierarquia_produto.
+
+  IF p_wa_mchbcar-matnr BETWEEN '12000000' AND '12999999'.
+
+    lv_matnr_sd_hierarquia_produto = p_matnr_sd_hierarquia_produto.
+
+  ELSEIF p_wa_marc_matnr BETWEEN '54000000' AND '54999999'.
+
+    READ TABLE it_mast INTO DATA(wa_mast) WITH KEY idnrk = p_wa_marc_matnr
+                                                   werks = p_wa_marc_werks.
+
+    IF sy-subrc EQ 0.
+      READ TABLE pt_caract_matnr WITH KEY matnr = wa_marc-matnr
+                                          atnam = 'SD_HIERARQUIA_PRODUTO'
+                                          INTO DATA(wa_caract_matnr) TRANSPORTING atwrt.
+      lv_matnr_sd_hierarquia_produto = wa_caract_matnr-atwrt.
+    ENDIF.
+  ENDIF.
+
+  IF lv_matnr_sd_hierarquia_produto IS NOT INITIAL AND lv_matnr_sd_hierarquia_produto CS 'SOLDA'.
+    IF p_wa_mchbcar-werks <> 'RN02' AND p_wa_marc_werks = 'RN02'.
+      p_matches = ''.
+      MOVE-CORRESPONDING p_wa_mchbcar TO wa_result.
+      wa_result-werks_apl = p_wa_marc_werks.
+      wa_result-matnr_apl = p_wa_marc_matnr.
+      wa_result-idnrk_apl = p_lista_tecnica-idnrk.
+      CONCATENATE 'Solda produto aplicado no centro' p_wa_mchbcar-werks INTO wa_result-log SEPARATED BY space.
+      wa_result-xloek     = 'E'.
+      APPEND wa_result TO pt_result.
+      CLEAR wa_result.
+    ENDIF.
+  ENDIF.
+
+ENDFORM.
+*&---------------------------------------------------------------------*
+*&      Form  ANALISE_ALTERNATIVO
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*  -->  p1        text
+*  <--  p2        text
+*----------------------------------------------------------------------*
+FORM analise_alternativo CHANGING cv_alternativo TYPE flag.
+
+*----------------------------------------------------------------------*
+* CONSTANTS                                                            *
+*----------------------------------------------------------------------*
+  CONSTANTS: c_lgort_0004 TYPE lgort_d VALUE '0004',
+             c_lgort_0080 TYPE lgort_d VALUE '0080',
+             c_lgort_0089 TYPE lgort_d VALUE '0089',
+             c_lgort_0090 TYPE lgort_d VALUE '0090',
+             c_lgort_0091 TYPE lgort_d VALUE '0091',
+             c_lgort_1018 TYPE lgort_d VALUE '1018'.
+
+  DATA lv_encontrou_demanda TYPE c.
+
+  IF it_mchbcar[] IS NOT INITIAL.
+
+    cv_alternativo = abap_true.
+
+    " selecionar reservas
+    SELECT rsnum, rspos, rsart, matnr, werks, lgort, charg
+      INTO TABLE @DATA(it_resb)
+      FROM resb
+      FOR ALL ENTRIES IN @it_mchbcar
+      WHERE matnr EQ @it_mchbcar-matnr
+        AND werks EQ @it_mchbcar-werks
+        AND xloek EQ ''
+        AND lgort EQ @it_mchbcar-lgort
+        AND charg EQ @it_mchbcar-charg.
+
+    " selecionar separação de materiais
+    SELECT matnr, werks, lgort, charg, vbeln, posnr, sequencia
+      INTO TABLE @DATA(it_ov_separa)
+      FROM zrnppt_ov_separa
+      FOR ALL ENTRIES IN @it_mchbcar
+      WHERE matnr   EQ @it_mchbcar-matnr
+        AND werks   EQ @it_mchbcar-werks
+        AND lgort   EQ @it_mchbcar-lgort
+        AND charg   EQ @it_mchbcar-charg
+        AND status  EQ ''.
+
+
+    " selecionar lista de alternativos
+    SELECT werks matnr charg matnr_pa
+      INTO CORRESPONDING FIELDS OF TABLE it_lista_alt
+      FROM zsuppt_lista_alt
+      FOR ALL ENTRIES IN it_mchbcar
+      WHERE matnr       EQ it_mchbcar-matnr
+        AND charg       EQ it_mchbcar-charg
+        AND desativada  EQ ''.
+
+    SELECT stlty, stlnr, stlkn, stpoz, datuv, idnrk
+      FROM stpo
+        INTO TABLE @DATA(tl_stpo)
+          FOR ALL ENTRIES IN @it_mchbcar
+            WHERE idnrk EQ @it_mchbcar-matnr.
+    IF sy-subrc EQ 0.
+      SORT tl_stpo BY idnrk datuv DESCENDING.
+      DELETE ADJACENT DUPLICATES FROM tl_stpo COMPARING idnrk.
+
+      SELECT stlty, stlnr, stlal, stlkn, stasz, datuv
+        FROM stas
+        INTO TABLE @DATA(tl_stas)
+         FOR ALL ENTRIES IN @tl_stpo
+       WHERE stlty EQ @tl_stpo-stlty
+         AND stlnr EQ @tl_stpo-stlnr
+         AND stlkn EQ @tl_stpo-stlkn.
+      IF sy-subrc EQ 0.
+        SORT tl_stas BY stlty stlnr stlkn datuv DESCENDING.
+        DELETE ADJACENT DUPLICATES FROM tl_stas COMPARING stlty stlnr stlkn .
+
+        SELECT matnr, werks, stlan, stlnr, stlal
+          FROM mast
+          INTO TABLE @DATA(tl_mast)
+           FOR ALL ENTRIES IN @tl_stas
+         WHERE stlnr EQ @tl_stas-stlnr
+           AND stlal EQ @tl_stas-stlal.
+      ENDIF.
+    ENDIF.
+
+    DATA(tl_mast_54) = tl_mast.
+    DELETE tl_mast_54 WHERE matnr NP '54*'.
+    IF tl_mast_54 IS NOT INITIAL.
+      SELECT stlty, stlnr, stlkn, stpoz, datuv, idnrk
+        FROM stpo
+        INTO TABLE @DATA(tl_stpo_2)
+         FOR ALL ENTRIES IN @tl_mast_54
+       WHERE idnrk EQ @tl_mast_54-matnr.
+      IF sy-subrc EQ 0.
+        SORT tl_stpo_2 BY idnrk datuv DESCENDING.
+        DELETE ADJACENT DUPLICATES FROM tl_stpo_2 COMPARING idnrk.
+
+        SELECT stlty, stlnr, stlal, stlkn, stasz, datuv
+          FROM stas
+          INTO TABLE @DATA(tl_stas_2)
+           FOR ALL ENTRIES IN @tl_stpo_2
+         WHERE stlty EQ @tl_stpo_2-stlty
+           AND stlnr EQ @tl_stpo_2-stlnr
+           AND stlkn EQ @tl_stpo_2-stlkn.
+        IF sy-subrc EQ 0.
+          SORT tl_stas_2 BY stlty stlnr stlkn datuv DESCENDING.
+          DELETE ADJACENT DUPLICATES FROM tl_stas_2 COMPARING stlty stlnr stlkn .
+
+          SELECT matnr, werks, stlan, stlnr, stlal
+            FROM mast
+            INTO TABLE @DATA(tl_mast_2)
+             FOR ALL ENTRIES IN @tl_stas_2
+           WHERE stlnr EQ @tl_stas_2-stlnr
+             AND stlal EQ @tl_stas_2-stlal.
+        ENDIF.
+      ENDIF.
+    ENDIF.
+    SORT: tl_stpo   BY idnrk,
+          tl_stas   BY stlty stlnr stlkn,
+          tl_mast   BY stlnr stlal,
+          tl_stpo_2 BY idnrk,
+          tl_stas_2 BY stlty stlnr stlkn,
+          tl_mast_2 BY stlnr stlal.
+  ENDIF.
+
+  IF it_mchbcar[] IS NOT INITIAL.
+    PERFORM f_seleciona_prev_demandas.
+    SORT it_zrnppt_prev BY matnr.
+  ENDIF.
+
+  SORT: it_resb      BY matnr charg,
+*        it_ov_separa BY matnr charg,
+        it_lista_alt BY matnr charg.
+
+  LOOP AT it_mchbcar ASSIGNING FIELD-SYMBOL(<fs_mchbcar>).
+
+    gv_tabix = sy-tabix.
+
+    IF <fs_mchbcar>-matnr BETWEEN '34000000' AND '34999999'.
+      "Só são considerados excessos os materiais que não possui demanda
+      READ TABLE it_zrnppt_prev TRANSPORTING NO FIELDS WITH KEY matnr = <fs_mchbcar>-matnr
+*                                                                werks = <fs_mchbcar>-werks
+                                                                BINARY SEARCH.
+      IF sy-subrc EQ 0. "Se encontrou registro com peso > 0
+        lv_encontrou_demanda = 'X'.
+        IF  <fs_mchbcar>-lgort EQ c_lgort_0004 OR
+            <fs_mchbcar>-lgort EQ c_lgort_0080 OR
+            <fs_mchbcar>-lgort EQ c_lgort_0089 OR
+            <fs_mchbcar>-lgort EQ c_lgort_0090 OR
+            <fs_mchbcar>-lgort EQ c_lgort_0091 OR
+            <fs_mchbcar>-lgort EQ c_lgort_1018.
+          CLEAR lv_encontrou_demanda.
+        ENDIF.
+        IF lv_encontrou_demanda EQ 'X'.
+          DELETE it_mchbcar[] WHERE matnr EQ <fs_mchbcar>-matnr.
+*                                AND werks EQ <fs_mchbcar>-werks.
+          CONTINUE.
+        ENDIF.
+      ENDIF.
+***    ELSEIF <fs_mchbcar>-matnr BETWEEN '54000000' AND '54999999'.
+***      LOOP AT tl_stpo INTO DATA(wl_stpo) WHERE idnrk = <fs_mchbcar>-matnr.
+***        READ TABLE tl_stas INTO DATA(wl_stas) WITH KEY stlty = wl_stpo-stlty
+***                                                       stlnr = wl_stpo-stlnr
+***                                                       stlkn = wl_stpo-stlkn BINARY SEARCH.
+***        IF sy-subrc EQ 0.
+***          READ TABLE tl_mast INTO DATA(wl_mast) WITH KEY stlnr = wl_stas-stlnr
+***                                                         stlal = wl_stas-stlal BINARY SEARCH.
+***          IF sy-subrc EQ 0 AND wl_mast-matnr BETWEEN '34000000' AND '34999999'.
+***            "Só são considerados excessos os materiais que não possui demanda
+***            READ TABLE it_zrnppt_prev TRANSPORTING NO FIELDS WITH KEY matnr = wl_mast-matnr
+***                                                                      werks = wl_mast-werks
+***                                                                      BINARY SEARCH.
+***            IF sy-subrc EQ 0. "Se encontrou registro com peso > 0
+***              lv_encontrou_demanda = 'X'.
+***              IF  <fs_mchbcar>-lgort EQ c_lgort_0004 OR
+***                  <fs_mchbcar>-lgort EQ c_lgort_0080 OR
+***                  <fs_mchbcar>-lgort EQ c_lgort_0089 OR
+***                  <fs_mchbcar>-lgort EQ c_lgort_0090 OR
+***                  <fs_mchbcar>-lgort EQ c_lgort_0091 OR
+***                  <fs_mchbcar>-lgort EQ c_lgort_1018.
+***                CLEAR lv_encontrou_demanda.
+***              ENDIF.
+***              IF lv_encontrou_demanda EQ 'X'.
+***                DELETE it_mchbcar[] WHERE matnr EQ <fs_mchbcar>-matnr
+***                                      AND werks EQ <fs_mchbcar>-werks.
+***                CONTINUE.
+***              ENDIF.
+***            ENDIF.
+***          ENDIF.
+***        ENDIF.
+***      ENDLOOP.
+***    ELSEIF <fs_mchbcar>-matnr BETWEEN '12000000' AND '12999999'.
+***      LOOP AT tl_stpo INTO wl_stpo WHERE idnrk = <fs_mchbcar>-matnr.
+***        READ TABLE tl_stas INTO wl_stas WITH KEY stlty = wl_stpo-stlty
+***                                                       stlnr = wl_stpo-stlnr
+***                                                       stlkn = wl_stpo-stlkn BINARY SEARCH.
+***        IF sy-subrc EQ 0.
+***          READ TABLE tl_mast INTO wl_mast WITH KEY stlnr = wl_stas-stlnr
+***                                                         stlal = wl_stas-stlal BINARY SEARCH.
+***          IF sy-subrc EQ 0 AND wl_mast-matnr BETWEEN '54000000' AND '54999999'.
+***            LOOP AT tl_stpo_2 INTO DATA(wl_stpo_2) WHERE idnrk = wl_mast-matnr.
+***              READ TABLE tl_stas_2 INTO DATA(wl_stas_2) WITH KEY stlty = wl_stpo_2-stlty
+***                                                                 stlnr = wl_stpo_2-stlnr
+***                                                                 stlkn = wl_stpo_2-stlkn BINARY SEARCH.
+***              IF sy-subrc EQ 0.
+***                READ TABLE tl_mast_2 INTO DATA(wl_mast_2) WITH KEY stlnr = wl_stas_2-stlnr
+***                                                                   stlal = wl_stas_2-stlal BINARY SEARCH.
+***                IF sy-subrc EQ 0 AND wl_mast_2-matnr BETWEEN '34000000' AND '34999999'.
+***                  "Só são considerados excessos os materiais que não possui demanda
+***                  READ TABLE it_zrnppt_prev TRANSPORTING NO FIELDS WITH KEY matnr = wl_mast_2-matnr
+***                                                                            werks = wl_mast_2-werks
+***                                                                            BINARY SEARCH.
+***                  IF sy-subrc EQ 0. "Se encontrou registro com peso > 0
+***                    lv_encontrou_demanda = 'X'.
+***                    IF  <fs_mchbcar>-lgort EQ c_lgort_0004 OR
+***                        <fs_mchbcar>-lgort EQ c_lgort_0080 OR
+***                        <fs_mchbcar>-lgort EQ c_lgort_0089 OR
+***                        <fs_mchbcar>-lgort EQ c_lgort_0090 OR
+***                        <fs_mchbcar>-lgort EQ c_lgort_0091 OR
+***                        <fs_mchbcar>-lgort EQ c_lgort_1018.
+***                      CLEAR lv_encontrou_demanda.
+***                    ENDIF.
+***                    IF lv_encontrou_demanda EQ 'X'.
+***                      DELETE it_mchbcar[] WHERE matnr EQ <fs_mchbcar>-matnr
+***                                            AND werks EQ <fs_mchbcar>-werks.
+***                      CONTINUE.
+***                    ENDIF.
+***                  ENDIF.
+***                ENDIF.
+***              ENDIF.
+***            ENDLOOP.
+***          ENDIF.
+***        ENDIF.
+***      ENDLOOP.
+    ENDIF.
+  ENDLOOP.
+
+
+ENDFORM.
+
+*&---------------------------------------------------------------------*
+*&      Form  F_CONSISTE_DEPOSITO
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+*      -->P_WA_MARC_WERKS  text
+*      -->P_WA_MARC_MATNR  text
+*      -->P_WA_MARC_LGORT  text
+*      -->P_WA_MCHBCAR  text
+*      <--P_LV_MATCHES  text
+*----------------------------------------------------------------------*
+FORM f_consiste_deposito  USING    p_werks
+                                   p_matnr
+                                   p_wa_mchbcar LIKE wa_mchbcar
+                          CHANGING p_matches.
+
+  SELECT SINGLE werks, lgort
+    INTO @DATA(ls_t001l)
+      FROM t001l
+        WHERE werks = @p_werks
+          AND lgort = @p_wa_mchbcar-lgort.
+
+  IF sy-subrc IS NOT INITIAL.
+*    p_matches = ''.
+    MOVE-CORRESPONDING p_wa_mchbcar TO wa_result.
+    wa_result-werks_apl = p_werks.
+    wa_result-matnr_apl = p_matnr.
+    CONCATENATE 'DEPÓSITO >> Depósito' p_wa_mchbcar-lgort 'não existe no centro' p_werks INTO wa_result-log SEPARATED BY space.
+*    wa_result-xloek     = 'X'.
+    CLEAR wa_result-xloek.
+    wa_result-idnrk_apl = wa_lista_tecnica-idnrk.
+    APPEND wa_result TO it_result.
+    CLEAR wa_result.
+    RETURN.
+  ENDIF.
+
+*  SELECT SINGLE matnr, werks, lgort
+*    INTO @DATA(ls_mard)
+*      FROM mard
+*        WHERE matnr = @p_wa_mchbcar-matnr
+*          AND werks = @p_werks
+*          AND lgort = @p_wa_mchbcar-lgort.
+*
+*  IF sy-subrc IS NOT INITIAL.
+**    p_matches = ''.
+*    MOVE-CORRESPONDING p_wa_mchbcar TO wa_result.
+*    wa_result-werks_apl = p_werks.
+*    wa_result-matnr_apl = p_matnr.
+*    CONCATENATE 'DEPÓSITO >> Ampliar para o material' p_wa_mchbcar-matnr 'no centro' p_werks 'para o depósito' p_wa_mchbcar-lgort
+*                INTO wa_result-log SEPARATED BY space.
+*    wa_result-xloek     = 'X'.
+*    wa_result-idnrk_apl = wa_lista_tecnica-idnrk.
+*    APPEND wa_result TO it_result.
+*    CLEAR wa_result.
+*    RETURN.
+*  ENDIF.
+
+ENDFORM.
+
+*RDM 315265
+*&---------------------------------------------------------------------*
+*&      Form  F_CLASSIFICA_LOG
+*&---------------------------------------------------------------------*
+*       text
+*----------------------------------------------------------------------*
+FORM f_classifica_log  CHANGING p_outtab TYPE ty_outtab
+                                p_restrito.
+
+  DATA: lt_resb TYPE TABLE OF resb,
+        ls_resb TYPE resb.
+
+  " rdm 324713
+  FIND 'NIVEL OLEAMENTO' IN wa_outtab-statustxt.
+  IF sy-subrc IS INITIAL.
+    p_restrito = ' '.
+    CLEAR p_outtab-xloek.
+    RETURN.
+  ENDIF.
+  FIND 'OLEAMENTO' IN wa_outtab-statustxt.
+  IF sy-subrc IS INITIAL.
+    p_restrito = 'X'.
+    CLEAR p_outtab-xloek.
+    RETURN.
+  ENDIF.
+  FIND 'PECA_SEGURANCA' IN wa_outtab-statustxt.
+  IF sy-subrc IS INITIAL.
+    p_restrito = 'X'.
+    CLEAR p_outtab-xloek.
+    RETURN.
+  ENDIF.
+
+  IF p_outtab-xloek EQ 'P' OR
+     p_outtab-xloek EQ 'T'.
+    p_restrito = ''.
+    RETURN.
+  ENDIF.
+
+*PM - Capabilidade - PRJ1372 - 15.03.2022
+  IF p_outtab-xloek EQ 'E' OR
+     p_outtab-xloek EQ 'C' OR
+     p_outtab-xloek EQ 'M' OR
+     p_outtab-xloek EQ 'R' OR
+     p_outtab-xloek EQ 'A' OR
+     p_outtab-xloek EQ 'O'.    " RDM 324713 - SANDRA H
+    CLEAR p_outtab-xloek.
+    p_restrito = ''.
+    RETURN.
+  ENDIF.
+*PM - Capabilidade - PRJ1372 - 15.03.2022
+
+  FIND 'TOYOTA' IN wa_outtab-statustxt.
+  IF sy-subrc IS INITIAL.
+    wa_outtab-icon_stt = icon_yellow_light.
+    p_restrito = ''.
+    RETURN.
+  ENDIF.
+
+  FIND 'RESERVA' IN wa_outtab-statustxt.
+  IF sy-subrc IS INITIAL.
+    SELECT *
+      INTO TABLE lt_resb
+      FROM resb
+      WHERE matnr EQ p_outtab-matnr
+        AND werks EQ p_outtab-werks
+        AND lgort EQ p_outtab-lgort
+        AND charg EQ p_outtab-charg
+        AND xloek EQ ''
+        AND kzear   = ''.
+    wa_outtab-icon_stt = icon_yellow_light.
+    p_restrito = ''.
+    RETURN.
+  ENDIF.
+
+  FIND 'DIMENSIONAL' IN wa_outtab-statustxt.
+  IF sy-subrc IS INITIAL AND p_outtab-xloek NE 'D'.
+    wa_outtab-icon_stt = icon_yellow_light.
+    p_restrito = ''.
+    RETURN.
+  ENDIF.
+
+  FIND 'ANALISE USINA' IN wa_outtab-statustxt.
+  IF sy-subrc IS INITIAL AND p_outtab-xloek NE 'D'.
+    wa_outtab-icon_stt = icon_yellow_light.
+    p_restrito = ''.
+    RETURN.
+  ENDIF.
+
+  FIND 'EM APROVAÇAO' IN wa_outtab-statustxt.
+  IF sy-subrc IS INITIAL AND p_outtab-xloek NE 'D'.
+    wa_outtab-icon_stt = icon_yellow_light.
+    p_restrito = ''.
+    RETURN.
+  ENDIF.
+
+  p_restrito = 'X'.
+
+ENDFORM.                    " F_CLASSIFICA_LOG
+*RDM 315265
+*&---------------------------------------------------------------------*
+*&      Form  F_CONSISTE_OLEAMENTO
+*&---------------------------------------------------------------------*
+FORM f_consiste_oleamento USING p_label
+                                p_wa_werks
+                                p_wa_matnr
+                                p_wa
+                                p_wa_mchbcar_charg
+                       CHANGING p_charg
+                                p_matnr_acabado
+                                p_matches
+                                p_wa_result.
+
+  CASE p_label.
+
+    WHEN 'MM_OLEAMENTO'.
+
+      IF p_charg IS INITIAL.
+        p_charg = 'S'.
+      ENDIF.
+
+      IF p_matnr_acabado IS INITIAL.
+        p_matnr_acabado = 'S'.
+      ENDIF.
+
+      IF p_charg = p_matnr_acabado.
+        p_matches = 'X'.
+        RETURN.
+      ELSE.
+        p_matches = space.
+      ENDIF.
+
+    WHEN 'MM_NIVEL_OLEAMENTO'.
+
+      IF p_charg IS INITIAL.
+        p_charg = 'S'.
+      ENDIF.
+
+      IF p_matnr_acabado IS INITIAL.
+        p_matnr_acabado = 'S'.
+      ENDIF.
+
+      IF p_charg = p_matnr_acabado.
+        p_matches = 'X'.
+        RETURN.
+      ELSE.
+        p_matches = space.
+      ENDIF.
+
+    WHEN 'MM_PECA_SEGURANCA'.
+
+      IF p_charg IS INITIAL.
+        p_charg = 'S'.
+      ENDIF.
+
+      IF p_matnr_acabado IS INITIAL.
+        p_matnr_acabado = 'S'.
+      ENDIF.
+
+      IF p_charg = p_matnr_acabado.
+        p_matches = 'X'.
+        RETURN.
+      ELSE.
+        p_matches = space.
+      ENDIF.
+
+  ENDCASE.
+
+  IF p_charg <> p_matnr_acabado .
+
+    CASE p_label.
+
+      WHEN 'MM_OLEAMENTO'.
+        DATA(lv_texto) = CONV char20( 'Oleamento' ).
+
+      WHEN 'MM_NIVEL_OLEAMENTO'.
+        lv_texto = 'Nivel Oleamento'.
+        wa_result-xloek     = 'O'.      " RDM 324713 - SANDRA H - farol amarelo
+
+      WHEN 'MM_PECA_SEGURANCA'.
+        lv_texto = 'Peça Segurança'.
+
+    ENDCASE.
+
+    MOVE-CORRESPONDING p_wa TO wa_result.
+
+    wa_result-werks_apl = p_wa_werks.
+    wa_result-matnr_apl = p_wa_matnr.
+*    wa_result-xloek     = 'O'.      " RDM 324713 - SANDRA H
+
+    CONCATENATE lv_texto ' >> Lote:' p_charg 'SKU:' p_matnr_acabado INTO wa_result-log SEPARATED BY space.
+
+    APPEND wa_result TO it_result.
+
+    p_wa_result = wa_result.
+
+    CLEAR wa_result.
+
+  ENDIF.
+
+ENDFORM.
