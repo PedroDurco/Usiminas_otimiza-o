@@ -1,0 +1,452 @@
+*&---------------------------------------------------------------------*
+*& Report  ZSUPPR_PESQUISA_APLICACAO_LOTE.
+*&---------------------------------------------------------------------*
+*& Cenário: Material JIT
+*&---------------------------------------------------------------------*
+*& Data da Alteração: 12/05/2026
+*& Usuário: Nic-Labs
+*&---------------------------------------------------------------------*
+
+REPORT zsuppr_pesquisa_aplicacao_lote.
+
+CLASS lcl_prog DEFINITION FINAL.
+  PUBLIC SECTION.
+    CLASS-METHODS split_single IMPORTING iv_input         TYPE csequence
+                               RETURNING VALUE(rv_output) TYPE string.
+ENDCLASS.
+
+CLASS lcl_event_receiver DEFINITION DEFERRED.
+
+TABLES: mchb, marc, zqmt_partnumber.
+
+TYPES:
+  BEGIN OF ty_outtab,
+    mark           TYPE c,
+    icon_stt       TYPE icon-id,
+    statustxt(100) TYPE c,
+    werks          TYPE mchb-werks,
+    matnr          TYPE mchb-matnr,
+    call_obs       TYPE icon-id,   "F.M. - Camp de observação
+    maktx          TYPE makt-maktx,
+    charg          TYPE mchb-charg,
+    lgort          TYPE mchb-lgort,
+    charg_mslb     TYPE lfa1-sortl,
+    clabs          TYPE mchb-clabs,
+    bdmng          TYPE mchb-clabs,
+    superficie     TYPE ausp-atwrt,
+    werks_apl      TYPE marc-werks,
+    matnr_apl      TYPE marc-matnr,
+    maktx_apl      TYPE makt-maktx,
+    superficie_apl TYPE ausp-atwrt,
+    idnrk_apl      TYPE stpo-idnrk,
+    lgort_apl      TYPE marc-lgpro,
+    necessidade_mp TYPE zppt_mp_falta-bdmng,
+    derroga        TYPE ze_derroga,   "F.M. - Check box derroga
+    prev_org       TYPE zrnppt_prev-peso,  "Previsao Mes
+    prev_org1      TYPE zrnppt_prev-peso,  "Previsao Mes + 1
+    prev_org2      TYPE zrnppt_prev-peso,  "Previsao Mes + 2
+    log            TYPE ze_log_petiq,
+    xloek          TYPE xloek,
+    usuario        TYPE sy-uname,
+    data           TYPE sy-datum,
+    cputm          TYPE sy-uzeit,
+    tpmesag        TYPE zppt_pajt-tpmesag,
+    tp_certifica   TYPE c,            "F.M - Tipo do certificado
+    capabil        TYPE zsusde_margfin_ou-capabil,
+    zicm_mp_ent    TYPE zsusde_margfin_ou-zicm_mp_ent,
+    zicm_pa_vend   TYPE zsusde_margfin_ou-zicm_pa_vend,
+    zrecolh_gov    TYPE zsusde_margfin_ou-zrecolh_gov,
+    zreceita_if    TYPE zsusde_margfin_ou-zreceita_if,
+    vbeln_ref      TYPE zsusde_margfin_ou-vbeln_ref,
+    zpreco_mp      TYPE zsusde_margfin_ou-zpreco_mp,
+    zpreco_mp_alt  TYPE zsusde_margfin_ou-zpreco_mp_alt,
+    zdelta_mp_pr   TYPE zsusde_margfin_ou-zdelta_mp_pr,
+    zcust_frete_ov TYPE zsusde_margfin_ou-zcust_frete_ov,
+    zperc_permeta  TYPE zsusde_margfin_ou-zperc_permeta,
+    zvl_permeta    TYPE zsusde_margfin_ou-zvl_permeta,
+    zcust_tot      TYPE zsusde_margfin_ou-zcust_tot,
+    zimpac_tot     TYPE zsusde_margfin_ou-zimpac_tot,
+    zpeso_mp_alt   TYPE zsusde_margfin_ou-zpeso_mp_alt,
+    zimpac_mp_tot  TYPE zsusde_margfin_ou-zimpac_mp_tot,
+    zval_mp_alter  TYPE zsusde_margfin_ou-zval_mp_alter,
+    zdem_vig       TYPE zsusde_margfin_ou-zdem_vig,
+    ztmp_estoq     TYPE zsusde_margfin_ou-ztmp_estoq,
+    zdesp_finan    TYPE zsusde_margfin_ou-zdesp_finan,
+    zbenefic       TYPE zsusde_margfin_ou-zbenefic,
+    bdmng_reserv   TYPE mchb-clabs,
+    deposito       TYPE mchb-lgort,
+  END OF ty_outtab,
+
+  BEGIN OF ty_result,
+    werks     TYPE mchb-werks,
+    matnr     TYPE mchb-matnr,
+    charg     TYPE mchb-charg,
+    lgort     TYPE mchb-lgort,
+    clabs     TYPE mchb-clabs,
+    werks_apl TYPE marc-werks,
+    matnr_apl TYPE marc-matnr,
+    lgort_apl TYPE marc-lgpro,
+    log       TYPE ze_log_petiq,
+    xloek     TYPE resb-xloek,
+    idnrk_apl TYPE stpo-idnrk,
+  END OF ty_result,
+
+  BEGIN OF ty_lista_tecnica,
+    werks TYPE mast-werks,
+    matnr TYPE mast-matnr,
+    idnrk TYPE stpo-idnrk,
+  END OF ty_lista_tecnica,
+
+  BEGIN OF ty_laminacao_nova,
+    matnr          TYPE mara-matnr,
+    laminacao_nova TYPE zpp_de_lamin,
+  END OF ty_laminacao_nova,
+
+  BEGIN OF ty_it_mtart_mast,
+    matnr TYPE mara-matnr,
+    mtart TYPE mara-mtart,
+  END OF ty_it_mtart_mast,
+
+  BEGIN OF ty_prova_erro,
+    werks     TYPE marc-werks,
+    matnr     TYPE marc-matnr,
+    qualidade TYPE ze_qualidade,
+    matnr_mp  TYPE mchb-matnr,
+    charg_mp  TYPE mchb-charg,
+    status    TYPE char03,
+  END OF ty_prova_erro,
+
+  BEGIN OF ty_prova_erro_log,
+    werks     TYPE marc-werks,
+    matnr     TYPE marc-matnr,
+    qualidade TYPE ze_qualidade,
+    matnr_mp  TYPE mchb-matnr,
+    charg_mp  TYPE mchb-charg,
+    log       TYPE ze_log_petiq,
+  END OF ty_prova_erro_log,
+
+  BEGIN OF ty_log_aplicacao,
+    idnrk_apl TYPE stpo-idnrk,
+    matnr     TYPE mchb-matnr,
+    charg     TYPE mchb-charg,
+  END OF ty_log_aplicacao.
+
+TYPES: BEGIN OF ty_mara,
+         matnr TYPE mara-matnr,
+         mtart TYPE mara-mtart,
+       END OF ty_mara.
+TYPES: BEGIN OF ty_marc,
+         matnr TYPE marc-matnr,
+         werks TYPE marc-werks,
+         lgpro TYPE marc-lgpro,
+         strgr TYPE marc-strgr,
+       END OF ty_marc.
+TYPES: BEGIN OF ty_resb,
+         rsnum TYPE resb-rsnum,
+         rspos TYPE resb-rspos,
+         rsart TYPE resb-rsart,
+         matnr TYPE resb-matnr,
+         werks TYPE resb-werks,
+         lgort TYPE resb-lgort,
+         charg TYPE resb-charg,
+         baugr TYPE resb-baugr,
+         bwart TYPE resb-bwart,
+         bdmng TYPE resb-bdmng,
+         enmng TYPE resb-enmng,
+         banfn TYPE resb-banfn,
+         ebeln TYPE resb-ebeln,
+         kdauf TYPE resb-kdauf,
+       END OF ty_resb.
+TYPES:
+  BEGIN OF ty_stpo,
+    stlty TYPE stpo-stlty,
+    stlnr TYPE stpo-stlnr,
+    stlkn TYPE stpo-stlkn,
+    stpoz TYPE stpo-stpoz,
+    idnrk TYPE stpo-idnrk,
+  END OF ty_stpo.
+
+TYPES:
+  BEGIN OF ty_zppt_gi,
+    matnr       TYPE zppt_gi-matnr,
+    deposito    TYPE zppt_gi-deposito,
+    lote_minimo TYPE zppt_gi-lote_minimo,
+    necessidade TYPE zppt_gi-necessidade,
+  END OF ty_zppt_gi.
+
+DATA it_mara             TYPE STANDARD TABLE OF ty_mara.
+DATA it_marc             TYPE STANDARD TABLE OF ty_marc.
+DATA it_mast             TYPE STANDARD TABLE OF zqms_mast.
+DATA it_mtart_mast       TYPE STANDARD TABLE OF ty_it_mtart_mast.
+DATA it_ztmmsu_controle  TYPE STANDARD TABLE OF ztmmsu_controle.
+DATA it_zppt_restr_entr  TYPE STANDARD TABLE OF zppt_restr_entr.
+DATA it_zqmt_restr_equip TYPE STANDARD TABLE OF zqmt_restr_equip.
+DATA it_zppt_restr_eqp_t TYPE STANDARD TABLE OF zppt_restr_eqp_t.
+DATA it_zppt_restr_eqp_l TYPE STANDARD TABLE OF zppt_restr_eqp_l.
+DATA it_zrnppt_prev_capa TYPE STANDARD TABLE OF zrnppt_prev.
+DATA it_zqmt_restr_cli   TYPE STANDARD TABLE OF zqmt_restr_cli.
+DATA it_zqmt_partnumber  TYPE STANDARD TABLE OF zqmt_partnumber.
+DATA it_mslb             TYPE STANDARD TABLE OF mslb.
+DATA it_resb_231         TYPE STANDARD TABLE OF ty_resb.
+DATA it_resb_261         TYPE STANDARD TABLE OF ty_resb.
+DATA it_resb_aux         TYPE STANDARD TABLE OF ty_resb.
+DATA it_resb_bext        TYPE STANDARD TABLE OF ty_resb.
+DATA it_mchbcar          TYPE STANDARD TABLE OF zrnsdt_mchbcar.
+DATA it_pajt_sol_mp      TYPE STANDARD TABLE OF zppt_pajt.
+DATA it_inspecao_mp      TYPE STANDARD TABLE OF zppt_inspecao.
+DATA it_lista_alt        TYPE STANDARD TABLE OF zsuppt_lista_alt.
+DATA it_atinn            TYPE STANDARD TABLE OF zsusde_caract_int.
+DATA it_caract_matnr     TYPE STANDARD TABLE OF zrnmme_poa_caract_ma.
+DATA it_caract_charg     TYPE STANDARD TABLE OF zrnmme_poa_caract_lo.
+DATA it_zrnppt_prev      TYPE STANDARD TABLE OF zrnppt_prev.
+DATA it_result           TYPE STANDARD TABLE OF ty_result.
+DATA it_result_aux       TYPE STANDARD TABLE OF ty_result.
+DATA it_result_nok       TYPE STANDARD TABLE OF ty_result.
+DATA it_lista_tecnica    TYPE STANDARD TABLE OF ty_lista_tecnica.
+DATA it_laminacao_nova   TYPE STANDARD TABLE OF ty_laminacao_nova.
+DATA it_vsamp_pa         TYPE STANDARD TABLE OF zsuppt_vsamp_pa.
+DATA it_prova_erro       TYPE STANDARD TABLE OF ty_prova_erro.
+DATA it_prova_erro_log   TYPE STANDARD TABLE OF ty_prova_erro_log.
+DATA it_pajt_log         TYPE STANDARD TABLE OF zppt_pajt_log.
+DATA it_log_aplicacao    TYPE STANDARD TABLE OF ty_log_aplicacao.
+
+DATA gt_outtab1     TYPE STANDARD TABLE OF ty_outtab.
+DATA gt_outtab2     TYPE STANDARD TABLE OF ty_outtab.
+DATA gt_outtab3     TYPE STANDARD TABLE OF ty_outtab.
+DATA gt_outtab2_aux TYPE STANDARD TABLE OF ty_outtab.
+DATA gt_outtab3_aux TYPE STANDARD TABLE OF ty_outtab.
+
+DATA wa_zsuget_variaveis TYPE zsuget_variaveis.
+DATA wa_marc             LIKE LINE OF it_marc.
+DATA wa_resb             TYPE ty_resb.
+DATA wa_resb_231         TYPE ty_resb.
+DATA wa_resb_261         TYPE ty_resb.
+DATA wa_mchbcar          TYPE zrnsdt_mchbcar.
+DATA wa_result           TYPE ty_result.
+DATA wa_outtab           TYPE ty_outtab.
+DATA wa_lista_tecnica    TYPE ty_lista_tecnica.
+DATA wa_laminacao_nova   TYPE ty_laminacao_nova.
+DATA wa_vsamp_pa         TYPE zsuppt_vsamp_pa.
+DATA wa_log_aplicacao    TYPE ty_log_aplicacao.
+
+DATA gv_horizonte_demanda TYPE ardb_month.
+DATA gv_estoque_minimo    TYPE mchb-clabs.
+DATA gv_tabix             TYPE sy-tabix.
+DATA gv_okcode            TYPE syucomm.
+DATA gv_answer            TYPE char1.
+
+* 12/05/2026 - Nic-Labs - Início
+DATA gv_running TYPE i.
+* 12/05/2026 - Nic-Labs - Fim
+
+DATA gr_table1 TYPE REF TO cl_gui_alv_grid.
+DATA gr_table2 TYPE REF TO cl_gui_alv_grid.
+DATA gr_table3 TYPE REF TO cl_gui_alv_grid.
+
+DATA container1 TYPE REF TO cl_gui_custom_container.
+DATA container2 TYPE REF TO cl_gui_custom_container.
+DATA container3 TYPE REF TO cl_gui_custom_container.
+
+DATA go_event_receiver     TYPE REF TO lcl_event_receiver.
+
+DATA gt_layout             TYPE lvc_s_layo.
+
+DATA gt_fieldcatalog1 TYPE lvc_t_fcat.
+DATA gt_fieldcatalog2 TYPE lvc_t_fcat.
+DATA gt_fieldcatalog3 TYPE lvc_t_fcat.
+
+DATA gt_rows      TYPE lvc_t_row.
+DATA gt_rows_aux  TYPE lvc_t_row.
+DATA lit_marc     TYPE STANDARD TABLE OF ty_marc.
+CONSTANTS: c_x TYPE c VALUE 'X',
+           c_a TYPE c VALUE 'A'.
+
+CONSTANTS: BEGIN OF c_tab_appl,
+             tab1 LIKE sy-ucomm VALUE 'TAB_APPL_FC1',
+             tab2 LIKE sy-ucomm VALUE 'TAB_APPL_FC2',
+             tab3 LIKE sy-ucomm VALUE 'TAB_APPL_FC3',
+           END OF c_tab_appl.
+
+CONTROLS: tab_appl TYPE TABSTRIP.
+
+DATA: BEGIN OF g_tab_appl,
+        subscreen   LIKE sy-dynnr,
+        prog        LIKE sy-repid VALUE 'ZSUPPR_PESQUISA_APLICACAO_LOTE',
+        pressed_tab LIKE sy-ucomm VALUE c_tab_appl-tab1,
+      END OF g_tab_appl.
+
+TYPES: BEGIN OF ty_rastreabilidade,
+         matnr TYPE mchb-matnr,
+         charg TYPE mchb-charg,
+       END OF ty_rastreabilidade.
+
+TYPES: BEGIN OF ty_matnr,
+         matnr TYPE mara-matnr,
+       END OF ty_matnr.
+
+*-----------------------------------------------------------------------
+** Class Definition
+**-----------------------------------------------------------------------
+CLASS lcl_event_receiver DEFINITION FINAL.
+  PUBLIC SECTION.
+    CLASS-METHODS:
+      handle_data_changed FOR EVENT data_changed OF cl_gui_alv_grid
+        IMPORTING er_data_changed,
+
+      handle_hotspot_click FOR EVENT hotspot_click OF cl_gui_alv_grid
+        IMPORTING e_row_id
+                  e_column_id
+                  es_row_no
+                  sender,
+
+      handle_toolbar FOR EVENT toolbar OF cl_gui_alv_grid
+        IMPORTING e_object e_interactive,
+
+      handle_menu_button FOR EVENT menu_button OF cl_gui_alv_grid
+        IMPORTING e_object e_ucomm,
+
+      handle_user_command FOR EVENT user_command OF cl_gui_alv_grid
+        IMPORTING e_ucomm,
+
+      handle_double_click FOR EVENT double_click OF cl_gui_alv_grid
+        IMPORTING e_row
+                  e_column.
+
+  PRIVATE SECTION.
+    METHODS check_stock IMPORTING ps_good_charg   TYPE lvc_s_modi
+                                  pr_data_changed TYPE REF TO cl_alv_changed_data_protocol.
+
+ENDCLASS.                    "lcl_event_receiver DEFINITION
+
+*--------------------------------------------------------------------*
+* PARÂMETROS DE SELEÇÃO
+*--------------------------------------------------------------------*
+SELECTION-SCREEN BEGIN OF BLOCK 001 WITH FRAME TITLE text-001.  "Base de Estoque:
+SELECT-OPTIONS: s_charg   FOR mchb-charg,
+* 12/05/2026 - Nic-Labs - Filtros adicionais MCHB
+                s_ewrks   FOR mchb-werks,  "Centro do Estoque (MCHB)
+                s_elgrt   FOR mchb-lgort.  "Depósito do Estoque (MCHB)
+* 12/05/2026 - Nic-Labs - Fim
+SELECTION-SCREEN END OF BLOCK 001.
+
+SELECTION-SCREEN BEGIN OF BLOCK 002 WITH FRAME TITLE text-002.  "Aplicação
+SELECT-OPTIONS: s_werks   FOR marc-werks,
+                s_matnr   FOR marc-matnr,
+                s_lgort   FOR mchb-lgort.
+SELECTION-SCREEN END OF BLOCK 002.
+
+SELECTION-SCREEN BEGIN OF BLOCK 003 WITH FRAME TITLE text-003.  "Critério de Análise
+PARAMETER:  r_su    RADIOBUTTON GROUP rad1,             "Soluções
+            r_usi   RADIOBUTTON GROUP rad1,             "Siderurgia
+            r_ambos RADIOBUTTON GROUP rad1 DEFAULT 'X'. "Todos
+SELECTION-SCREEN END OF BLOCK 003.
+
+SELECTION-SCREEN BEGIN OF BLOCK 004 WITH FRAME TITLE text-004.  "Opções
+PARAMETER p_max_ln  TYPE sy-tabix DEFAULT '150'.
+PARAMETER p_gd  AS CHECKBOX DEFAULT 'X'.
+PARAMETER p_rest  AS CHECKBOX DEFAULT abap_true.
+* 15/05/2026 - Nic-Labs - Início
+PARAMETERS p_qtdest TYPE sy-tabix DEFAULT '2000'.
+PARAMETERS p_task TYPE sy-tabix DEFAULT '5'.
+* 15/05/2026 - Nic-Labs - Fim
+SELECTION-SCREEN END OF BLOCK 004.
+
+*PP - Otimização de Estoque - RDM 255762
+PARAMETER p_uname TYPE sy-uname NO-DISPLAY.
+PARAMETER p_dynnr TYPE sy-dynnr NO-DISPLAY.
+*PP - Otimização de Estoque - RDM 255762
+
+INCLUDE zsuppr_pesquisa_aplicacao_lo04.
+INCLUDE zsuppr_pesquisa_aplicacao_li04.
+INCLUDE zsuppr_pesquisa_aplicacao_lf04.
+INCLUDE zsuppr_pesquisa_aplicacao_imp4.
+
+** 05/08 - RDM 330447 - início
+AT SELECTION-SCREEN OUTPUT.
+  LOOP AT SCREEN.
+    IF screen-name = 'P_REST'.
+      screen-input = 0.
+      MODIFY SCREEN.
+    ENDIF.
+* 12/05/2026 - Nic-Labs - Depósito habilitado somente se Centro informado
+    IF screen-name CS 'S_ELGRT'.
+      IF s_ewrks[] IS INITIAL.
+        screen-input = 0.
+      ELSE.
+        screen-input = 1.
+      ENDIF.
+      MODIFY SCREEN.
+    ENDIF.
+* 12/05/2026 - Nic-Labs - Fim
+  ENDLOOP.
+** 05/08 - RDM 330447 - FIM
+
+*--------------------------------------------------------------------*
+* SELEÇÃO DE DADOS
+*--------------------------------------------------------------------*
+START-OF-SELECTION.
+  IF sy-tcode = 'ZPP_MP_ALTERNATIVA'.
+    IF p_uname IS INITIAL.
+      p_uname = sy-uname.
+    ENDIF.
+    PERFORM zf_carrega_resultado_job USING p_uname.
+  ELSE.
+    PERFORM f_valida_tela_selecao.
+    PERFORM f_seleciona_parametros.
+    PERFORM f_seleciona_aplicacao.
+
+    IF it_marc[] IS INITIAL.
+      MESSAGE 'Nenhuma Aplicação válida!' TYPE 'S' DISPLAY LIKE 'E'.
+      LEAVE LIST-PROCESSING.
+    ENDIF.
+
+    PERFORM f_processa_aplicacao.
+
+  ENDIF.
+
+*--------------------------------------------------------------------*
+* End-of-selection
+*--------------------------------------------------------------------*
+END-OF-SELECTION.
+  IF gv_answer = '2'.
+    STOP.
+  ENDIF.
+
+  IF gt_outtab1[] IS INITIAL AND
+     gt_outtab2[] IS INITIAL AND
+     gt_outtab3[] IS INITIAL.
+
+    MESSAGE 'Nenhum Aplicação encontrada!' TYPE 'S' DISPLAY LIKE 'E'.
+    LEAVE LIST-PROCESSING.
+  ELSE.
+
+*PP - Integração SAPxSistema PA (aproveitamento) - RDM 241927
+*    PERFORM f_display_grids.
+
+    IF sy-batch IS INITIAL.
+      p_dynnr = '100'.
+      PERFORM f_display_grids.
+    ELSE.
+      LOOP AT gt_outtab1 INTO wa_outtab.
+        PERFORM zf_grava_saida.
+      ENDLOOP.
+
+      LOOP AT gt_outtab2 INTO wa_outtab.
+        PERFORM zf_grava_saida.
+      ENDLOOP.
+
+      IF gt_outtab3[] IS NOT INITIAL.
+        WRITE: / '--- Resultados Aba 3 (Sem Aplicação) ---'.
+        WRITE: / 'Centro', 12 'Material', 32 'Lote', 50 'Depósito', 62 'Estoque'.
+        WRITE: / sy-uline(80).
+        LOOP AT gt_outtab3 INTO wa_outtab.
+          WRITE: / wa_outtab-werks, 12 wa_outtab-matnr, 32 wa_outtab-charg, 50 wa_outtab-lgort, 62 wa_outtab-clabs.
+        ENDLOOP.
+        WRITE: / |Total registros aba 3: { lines( gt_outtab3 ) }|.
+      ENDIF.
+
+      LEAVE PROGRAM.
+    ENDIF.
+*PP - Integração SAPxSistema PA (aproveitamento) - RDM 241927
+
+  ENDIF.
