@@ -1,0 +1,132 @@
+* RDM 334163 - Memória de consultas repetidas no cruzamento lote x SKU
+TYPES: BEGIN OF ty_c_t001l,
+         werks  TYPE t001l-werks,
+         lgort  TYPE t001l-lgort,
+         existe TYPE abap_bool,
+       END OF ty_c_t001l,
+       BEGIN OF ty_c_oest,
+         werks  TYPE zppt_oest-werks_apl,
+         matnr  TYPE zppt_oest-matnr_apl,
+         existe TYPE abap_bool,
+       END OF ty_c_oest,
+       BEGIN OF ty_c_pncentro,
+         werks  TYPE zsdt_pncentro-werks,
+         matnr  TYPE zsdt_pncentro-matnr,
+         kunnr  TYPE zsdt_pncentro-kunnr,
+         existe TYPE abap_bool,
+       END OF ty_c_pncentro,
+       BEGIN OF ty_c_tpcert,
+         werks TYPE marc-werks,
+         matnr TYPE marc-matnr,
+         mvgr1 TYPE vbap-mvgr1,
+       END OF ty_c_tpcert.
+
+DATA: gt_c_t001l    TYPE HASHED TABLE OF ty_c_t001l    WITH UNIQUE KEY werks lgort,
+      gt_c_oest     TYPE HASHED TABLE OF ty_c_oest     WITH UNIQUE KEY werks matnr,
+      gt_c_pncentro TYPE HASHED TABLE OF ty_c_pncentro WITH UNIQUE KEY werks matnr,
+      gt_c_tpcert   TYPE HASHED TABLE OF ty_c_tpcert   WITH UNIQUE KEY werks matnr.
+* RDM 334163 - Fim
+
+
+Onde: F01 → FORM F_ANALISA_APLICACAO_ESTOQUE, logo depois de REFRESH: it_result. (perto da linha 189).
+
+* RDM 334163 - Memória de consultas zerada a cada processamento
+  FREE: gt_c_t001l, gt_c_oest, gt_c_pncentro, gt_c_tpcert.
+
+Onde: F01 → FORM F_ANALISA_APLICACAO_ESTOQUE, bloco "Check Tipo de Certificado (perto da linha 701).
+
+        "Check Tipo de Certificado
+        CLEAR lv_tipo_certificado.
+        CALL FUNCTION 'ZQMF_TIPO_CERTIFICADO'
+          ...
+        IF sy-subrc <> 0.
+        ENDIF.
+
+Substituir por (o CALL FUNCTION com todos os parâmetros e EXCEPTIONS fica exatamente como está, só entra dentro do ELSE):
+
+        "Check Tipo de Certificado
+        CLEAR lv_tipo_certificado.
+* RDM 334163 - Consulta uma vez por centro + material
+        READ TABLE gt_c_tpcert ASSIGNING FIELD-SYMBOL(<ls_c_tpcert>)
+             WITH TABLE KEY werks = wa_marc-werks
+                            matnr = wa_marc-matnr.
+        IF sy-subrc = 0.
+          lv_tipo_certificado = <ls_c_tpcert>-mvgr1.
+        ELSE.
+          CALL FUNCTION 'ZQMF_TIPO_CERTIFICADO'
+            "... EXPORTING / IMPORTING / EXCEPTIONS originais, sem alteração ...
+          IF sy-subrc <> 0.
+          ENDIF.
+          INSERT VALUE #( werks = wa_marc-werks
+                          matnr = wa_marc-matnr
+                          mvgr1 = lv_tipo_certificado ) INTO TABLE gt_c_tpcert.
+        ENDIF.
+* RDM 334163 - Fim
+
+Onde: F01 → FORM F_CONSISTE_CERTIFICADO (perto da linha 1835).
+
+  IF p_mtart EQ 'ZFEJ'.
+* RDM 334163 - Consulta uma vez por centro + material
+    DATA: lv_kunnr  TYPE zsdt_pncentro-kunnr,
+          lv_existe TYPE abap_bool.
+
+    READ TABLE gt_c_pncentro ASSIGNING FIELD-SYMBOL(<ls_c_pnc>)
+         WITH TABLE KEY werks = p_werks
+                        matnr = p_matnr.
+    IF sy-subrc <> 0.
+      CLEAR lv_kunnr.
+      SELECT SINGLE kunnr
+        INTO @lv_kunnr
+        FROM zsdt_pncentro
+       WHERE matnr     EQ @p_matnr
+         AND werks     EQ @p_werks
+         AND zf_status EQ 'A'.
+      lv_existe = xsdbool( sy-subrc = 0 ).
+      INSERT VALUE #( werks  = p_werks
+                      matnr  = p_matnr
+                      kunnr  = lv_kunnr
+                      existe = lv_existe ) INTO TABLE gt_c_pncentro ASSIGNING <ls_c_pnc>.
+    ENDIF.
+    lv_kunnr = <ls_c_pnc>-kunnr.
+    IF <ls_c_pnc>-existe = abap_true.
+* RDM 334163 - Fim
+
+
+Onde: F01 → FORM F_CONSISTE_RESERVA_OP, último bloco do FORM (perto da linha 2558).
+
+* RDM 334163 - Consulta uma vez por centro + material
+  READ TABLE gt_c_oest ASSIGNING FIELD-SYMBOL(<ls_c_oest>)
+       WITH TABLE KEY werks = p_werks
+                      matnr = p_matnr.
+  IF sy-subrc <> 0.
+    SELECT COUNT( * )
+      FROM zppt_oest
+     WHERE matnr_apl EQ @p_matnr
+       AND werks_apl EQ @p_werks.
+    DATA(lv_existe_oest) = xsdbool( sy-subrc = 0 ).
+    INSERT VALUE #( werks  = p_werks
+                    matnr  = p_matnr
+                    existe = lv_existe_oest ) INTO TABLE gt_c_oest ASSIGNING <ls_c_oest>.
+  ENDIF.
+  IF <ls_c_oest>-existe = abap_true.
+* RDM 334163 - Fim
+
+
+Onde: F01 → FORM F_CONSISTE_DEPOSITO (perto da linha 1869).
+
+* RDM 334163 - Consulta uma vez por centro + depósito
+  READ TABLE gt_c_t001l ASSIGNING FIELD-SYMBOL(<ls_c_t001l>)
+       WITH TABLE KEY werks = p_werks
+                      lgort = p_wa_mchbcar-lgort.
+  IF sy-subrc <> 0.
+    SELECT COUNT( * )
+      FROM t001l
+     WHERE werks EQ @p_werks
+       AND lgort EQ @p_wa_mchbcar-lgort.
+    DATA(lv_existe_t001l) = xsdbool( sy-subrc = 0 ).
+    INSERT VALUE #( werks  = p_werks
+                    lgort  = p_wa_mchbcar-lgort
+                    existe = lv_existe_t001l ) INTO TABLE gt_c_t001l ASSIGNING <ls_c_t001l>.
+  ENDIF.
+  IF <ls_c_t001l>-existe = abap_false.
+* RDM 334163 - Fim
