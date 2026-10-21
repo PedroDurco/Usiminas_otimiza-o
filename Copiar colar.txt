@@ -1,133 +1,114 @@
-Onde: LZGFPP_PESQUISA_APLICACAOTOP, logo abaixo das declarações do bloco 2 (antes do * RDM 334163 - Fim).
+Onde: LZGFPP_PESQUISA_APLICACAOF01, em 6 leituras de it_caract_matnr que hoje percorrem a tabela do começo ao fim. As outras leituras dessa tabela nos mesmos FORMs já usam BINARY SEARCH.
 
-TYPES: BEGIN OF ty_c_sup,
-         matnr_mp TYPE matnr,
-         matnr_pa TYPE matnr,
-         consist  TYPE char03,
-       END OF ty_c_sup,
-       BEGIN OF ty_c_rev,
-         werks          TYPE marc-werks,
-         matnr          TYPE marc-matnr,
-         laminacao_nova TYPE zpp_de_lamin,
-         inf_min        TYPE zrnqmt_cert_ite-ens_inf,
-         inf_max        TYPE zrnqmt_cert_ite-ens_inf,
-         sup_min        TYPE zrnqmt_cert_ite-ens_sup,
-         sup_max        TYPE zrnqmt_cert_ite-ens_sup,
-         tot_min        TYPE zrnqmt_cert_ite-ens_tot,
-         tot_max        TYPE zrnqmt_cert_ite-ens_tot,
-         erro           TYPE c LENGTH 1,
-         log            TYPE ze_log_petiq,
-       END OF ty_c_rev,
-       BEGIN OF ty_c_clot,
-         matnr TYPE mchb-matnr,
-         charg TYPE mchb-charg,
-         itab  TYPE STANDARD TABLE OF zrnmme_poa_caract_lo WITH DEFAULT KEY,
-       END OF ty_c_clot.
-
-DATA: gt_c_sup  TYPE HASHED TABLE OF ty_c_sup  WITH UNIQUE KEY matnr_mp matnr_pa,
-      gt_c_rev  TYPE HASHED TABLE OF ty_c_rev  WITH UNIQUE KEY werks matnr,
-      gt_c_clot TYPE HASHED TABLE OF ty_c_clot WITH UNIQUE KEY matnr charg.
+       READ TABLE it_caract_matnr WITH KEY matnr = wa_marc-matnr
+                                            atnam = 'PDR_CONSULTA_METALURGICA'
+                                            BINARY SEARCH  "RDM 334163
+                                            INTO lwa_caract_matnr TRANSPORTING atwrt.
 
 
-Onde: F01 → F_ANALISA_APLICACAO_ESTOQUE, no FREE incluído no bloco 2.
+Onde: F01 → FORM F_ANALISA_APLICACAO_ESTOQUE, logo depois de END OF lit_log_pe.
 
-  FREE: gt_c_t001l, gt_c_oest, gt_c_pncentro, gt_c_tpcert,
-        gt_c_sup, gt_c_rev, gt_c_clot.
-
-Onde: F01 → FORM F_CONSISTE_SUPERFICIE, no CALL FUNCTION 'ZPPF_CONSISTE_SUPERFICIE' (perto da linha 2918).
-
-
-  DATA lv_consistencia TYPE char03.
-* RDM 334163 - Consulta uma vez por material do lote + SKU
-  READ TABLE gt_c_sup ASSIGNING FIELD-SYMBOL(<ls_c_sup>)
-       WITH TABLE KEY matnr_mp = p_wa_mchbcar-matnr
-                      matnr_pa = p_matnr.
-  IF sy-subrc = 0.
-    lv_consistencia = <ls_c_sup>-consist.
-  ELSE.
-    CALL FUNCTION 'ZPPF_CONSISTE_SUPERFICIE'
-      "... parâmetros originais, sem alteração ...
-    INSERT VALUE #( matnr_mp = p_wa_mchbcar-matnr
-                    matnr_pa = p_matnr
-                    consist  = lv_consistencia ) INTO TABLE gt_c_sup.
-  ENDIF.
+* RDM 334163 - Faixa de linhas do log de prova de erro por componente/lote
+  TYPES: BEGIN OF ty_idx_pe,
+           idnrk TYPE stpo-idnrk,
+           matnr TYPE mchb-matnr,
+           charg TYPE mchb-charg,
+           de    TYPE i,
+           ate   TYPE i,
+         END OF ty_idx_pe.
+  DATA: lt_idx_pe TYPE HASHED TABLE OF ty_idx_pe WITH UNIQUE KEY idnrk matnr charg,
+        lv_ini_pe TYPE i.
 * RDM 334163 - Fim
 
 
-Onde: F01 → FORM F_CONSISTE_REVESTIMENTO.
+Onde: mesmo FORM, logo depois de PERFORM f_consiste_certificado ...
 
-O trecho entre CLEAR wa_laminacao_nova. (perto da linha 2610) e o ENDIF. que fecha o bloco das tolerâncias, logo antes de IF lv_erro_revestimento = 'X'. (perto da linha 2768), depende só de centro + SKU. Esse trecho passa a rodar uma vez por centro + SKU. O código original não muda: só é reorganizado dentro de um IF.
+* RDM 334163 - Lê só a faixa do componente/lote
+        READ TABLE lt_idx_pe ASSIGNING FIELD-SYMBOL(<ls_idx_pe>)
+             WITH TABLE KEY idnrk = wa_lista_tecnica-idnrk
+                            matnr = wa_mchbcar-matnr
+                            charg = wa_mchbcar-charg.
+        IF sy-subrc = 0.
+          LOOP AT lit_log_pe FROM <ls_idx_pe>-de TO <ls_idx_pe>-ate
+                             WHERE idnrk EQ wa_lista_tecnica-idnrk
+                               AND matnr EQ wa_mchbcar-matnr
+                               AND charg EQ wa_mchbcar-charg.
+            ...  "corpo original, sem alteração
+          ENDLOOP.
+        ENDIF.
+* RDM 334163 - Fim
+        IF sy-subrc IS INITIAL.
 
 
-* RDM 334163 - Lamina\u00e7\u00e3o e toler\u00e2ncias calculadas uma vez por centro + SKU
-  READ TABLE gt_c_rev ASSIGNING FIELD-SYMBOL(<ls_c_rev>)
-       WITH TABLE KEY werks = p_werks
-                      matnr = p_matnr.
-  IF sy-subrc <> 0.
+Onde: mesmo FORM, no ELSE logo abaixo. É o trecho do comentário "Armazena todas as mensagens que foram geradas dentro da validação de prova de erro.
 
-    "--- código original: de 'CLEAR wa_laminacao_nova.' até
-    "--- 'lv_laminacao_nova = wa_laminacao_nova-laminacao_nova.' (sem alteração)
+          "Armazena todas as mensagens que foram geradas dentro da validação de prova de erro
+          lv_ini_pe = lines( lit_log_pe ) + 1.  "RDM 334163
+          LOOP AT it_result INTO wa_result FROM lv_index.
+            lit_log_pe-log = wa_result-log.
+            APPEND lit_log_pe.
+          ENDLOOP.
+          IF sy-subrc NE 0.
+            APPEND lit_log_pe.
+          ENDIF.
+* RDM 334163 - Registra a faixa gravada
+          INSERT VALUE #( idnrk = wa_lista_tecnica-idnrk
+                          matnr = wa_mchbcar-matnr
+                          charg = wa_mchbcar-charg
+                          de    = lv_ini_pe
+                          ate   = lines( lit_log_pe ) ) INTO TABLE lt_idx_pe.
+* RDM 334163 - Fim
+          CLEAR lit_log_pe.
 
-    IF lv_laminacao_nova EQ 'EG' OR lv_laminacao_nova EQ 'ZN'.
-      "--- código original: de 'CLEAR zqmt_partnumber-partnumber.' até o ENDIF
-      "--- que fecha o bloco das tolerâncias (logo antes de 'IF lv_erro_revestimento = 'X'.')
-    ENDIF.
 
-    INSERT VALUE #( werks          = p_werks
-                    matnr          = p_matnr
-                    laminacao_nova = lv_laminacao_nova
-                    inf_min        = lv_car_rev_inf_min
-                    inf_max        = lv_car_rev_inf_max
-                    sup_min        = lv_car_rev_sup_min
-                    sup_max        = lv_car_rev_sup_max
-                    tot_min        = lv_car_rev_tot_min
-                    tot_max        = lv_car_rev_tot_max
-                    erro           = lv_erro_revestimento
-                    log            = lv_log ) INTO TABLE gt_c_rev ASSIGNING <ls_c_rev>.
-  ENDIF.
 
-  lv_laminacao_nova    = <ls_c_rev>-laminacao_nova.
-  lv_car_rev_inf_min   = <ls_c_rev>-inf_min.
-  lv_car_rev_inf_max   = <ls_c_rev>-inf_max.
-  lv_car_rev_sup_min   = <ls_c_rev>-sup_min.
-  lv_car_rev_sup_max   = <ls_c_rev>-sup_max.
-  lv_car_rev_tot_min   = <ls_c_rev>-tot_min.
-  lv_car_rev_tot_max   = <ls_c_rev>-tot_max.
-  lv_erro_revestimento = <ls_c_rev>-erro.
-  lv_log               = <ls_c_rev>-log.
+Onde: LZGFPP_PESQUISA_APLICACAOTOP, em BEGIN OF ty_prova_erro.
 
-* Consiste apenas laminação do tipo EG ou ZN
-  IF lv_laminacao_nova NE 'EG' AND
-     lv_laminacao_nova NE 'ZN'.
-    RETURN.
-  ENDIF.
+    status    TYPE char03,
+    log_de    TYPE i,       "RDM 334163
+    log_ate   TYPE i,       "RDM 334163
+  END OF ty_prova_erro,
+
+
+Onde: LZGFPP_PESQUISA_APLICACAOTOP.
+
+* RDM 334163 - Acesso direto pela chave
+DATA it_prova_erro       TYPE HASHED TABLE OF ty_prova_erro
+                         WITH UNIQUE KEY werks matnr qualidade matnr_mp charg_mp.
+
+
+Onde: F01 → FORM F_CONSISTE_PROVA_ERRO. Os 3 APPEND lwa_prova_erro TO it_prova_erro. viram INSERT, porque tabela HASHED não aceita APPEND. O READ TABLE it_prova_erro ... WITH KEY não muda, porque já informa a chave completa.
+
+Gravação 1 – dentro de IF lit_log_pe[] IS NOT INITIAL., depois de lwa_prova_erro-status = 'NOK'.
+
+            lwa_prova_erro-status    = 'NOK'.
+* RDM 334163 - Faixa do log que será gravado no LOOP abaixo
+            lwa_prova_erro-log_de    = lines( it_prova_erro_log ) + 1.
+            lwa_prova_erro-log_ate   = lines( it_prova_erro_log ) + lines( lit_log_pe ).
+            INSERT lwa_prova_erro INTO TABLE it_prova_erro.
 * RDM 334163 - Fim
 
-  "--- segue o código original a partir de 'IF lv_erro_revestimento = 'X'.' (sem alteração)
+Gravação 2 – no ELSE do mesmo IF, depois de lwa_prova_erro-status = 'OK'.
+
+            lwa_prova_erro-status    = 'OK'.
+            INSERT lwa_prova_erro INTO TABLE it_prova_erro.  "RDM 334163
+
+Gravação 3 – no tratamento de erro da ZQMF_MATXPE, depois do ENDCASE. e do p_matches = ''., em lwa_prova_erro-status = 'NOK'.
 
 
-Onde: F01 → FORM F_RASTRABILIDADE_OLEO (perto da linha 3191).
-
-  REFRESH: t_itab_lot.
-
-* RDM 334163 - Consulta uma vez por lote rastreado
-  READ TABLE gt_c_clot ASSIGNING FIELD-SYMBOL(<ls_c_clot>)
-       WITH TABLE KEY matnr = lwa_rastreabilidade-matnr
-                      charg = lwa_rastreabilidade-charg.
-  IF sy-subrc = 0.
-    t_itab_lot[] = <ls_c_clot>-itab.
-  ELSE.
-    CALL FUNCTION 'ZRNMMF_SEARCH_CLOT'
-      EXPORTING
-        matnr    = lwa_rastreabilidade-matnr
-        klart    = '023'
-        charg    = lwa_rastreabilidade-charg
-        idioma   = sy-langu
-      TABLES
-        itab_lot = t_itab_lot.
-    INSERT VALUE #( matnr = lwa_rastreabilidade-matnr
-                    charg = lwa_rastreabilidade-charg
-                    itab  = t_itab_lot[] ) INTO TABLE gt_c_clot.
-  ENDIF.
+          lwa_prova_erro-status    = 'NOK'.
+* RDM 334163 - Faixa do log (1 linha gravada logo abaixo)
+          lwa_prova_erro-log_de    = lines( it_prova_erro_log ) + 1.
+          lwa_prova_erro-log_ate   = lines( it_prova_erro_log ) + 1.
+          INSERT lwa_prova_erro INTO TABLE it_prova_erro.
 * RDM 334163 - Fim
+
+
+Onde: F01 → FORM F_CONSISTE_PROVA_ERRO, dentro de IF lwa_prova_erro-status = 'NOK'.
+
+          LOOP AT it_prova_erro_log INTO lwa_prova_erro_log
+                                    FROM lwa_prova_erro-log_de    "RDM 334163
+                                    TO   lwa_prova_erro-log_ate   "RDM 334163
+                                    WHERE werks     = p_werks
+
 
