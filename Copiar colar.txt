@@ -1,52 +1,101 @@
-Onde: LZGFPP_PESQUISA_APLICACAOF01, FORM F_ATUALIZA_SALDO_ESTOQUES. São três pontos: um na declaração, um no início do FORM e um dentro do laço.
+6A – Chamada na função
 
----------
+Onde: LZGFPP_PESQUISA_APLICACAOU01 (função ZPPF_PROCESSA_PACOTES_LOTE), no final, dentro de IF p_task IS INITIAL.
 
-Onde: logo depois de DATA lv_bdmng TYPE resb-bdmng.
-
-* RDM 334163 - Saldo MCHB por material/lote lido uma única vez
-  TYPES: BEGIN OF ty_c_mchb,
-           matnr TYPE mchb-matnr,
-           charg TYPE mchb-charg,
-           clabs TYPE mchb-clabs,
-         END OF ty_c_mchb.
-  DATA: lt_c_mchb TYPE HASHED TABLE OF ty_c_mchb WITH UNIQUE KEY matnr charg,
-        lv_clabs  TYPE mchb-clabs.
+  IF p_task IS INITIAL.
+* RDM 334163 - Gravação em uma única operação
+*    LOOP AT gt_outtab1 INTO wa_outtab.
+*      PERFORM zf_grava_saida.
+*    ENDLOOP.
+*
+*    LOOP AT gt_outtab2 INTO wa_outtab.
+*      PERFORM zf_grava_saida.
+*    ENDLOOP.
+    PERFORM zf_grava_saida_lote.
 * RDM 334163 - Fim
 
-----------------
 
-Onde: dentro do IF it_mchbcar IS NOT INITIAL., logo depois de SORT it_resb_aux BY matnr charg baugr bwart. e antes do ENDIF.
 
-* RDM 334163 - Lê a MCHB uma vez e soma por material/lote
-    SELECT matnr, werks, lgort, charg, clabs
-      FROM mchb
-      FOR ALL ENTRIES IN @it_mchbcar
-     WHERE matnr EQ @it_mchbcar-matnr
-       AND charg EQ @it_mchbcar-charg
-       AND clabs GT 0
-      INTO TABLE @DATA(lt_mchb_aux).
-    LOOP AT lt_mchb_aux ASSIGNING FIELD-SYMBOL(<ls_mchb_aux>).
-      COLLECT VALUE ty_c_mchb( matnr = <ls_mchb_aux>-matnr
-                               charg = <ls_mchb_aux>-charg
-                               clabs = <ls_mchb_aux>-clabs ) INTO lt_c_mchb.
-    ENDLOOP.
-    FREE lt_mchb_aux.
+6B – Novo FORM
+
+Onde: LZGFPP_PESQUISA_APLICACAOF01, logo depois do ENDFORM. " ZF_GRAVA_SAIDA. O FORM ZF_GRAVA_SAIDA original fica como está.
+
+
+*&---------------------------------------------------------------------*
+*&      Form  ZF_GRAVA_SAIDA_LOTE
+*&---------------------------------------------------------------------*
+* RDM 334163 - Gravação da ZPPT_PAJT em uma única operação
+*----------------------------------------------------------------------*
+FORM zf_grava_saida_lote.
+
+  CONSTANTS lc_cprog TYPE zppt_pajt-cprog VALUE 'ZSUPPR_PESQUISA_APLICACAO_LOTE'.
+
+  DATA: lt_pajt   TYPE STANDARD TABLE OF zppt_pajt,
+        lwa_pajt  TYPE zppt_pajt,
+        lv_seq    TYPE zppt_pajt-seq,
+        lv_varkey TYPE rstable-varkey.
+
+  CHECK gt_outtab1[] IS NOT INITIAL OR gt_outtab2[] IS NOT INITIAL.
+
+* Bloqueia a numeração do usuário enquanto grava (evita SEQ repetido entre jobs)
+  lv_varkey(3)     = sy-mandt.
+  lv_varkey+3(40)  = lc_cprog.
+  lv_varkey+43(12) = sy-uname.
+
+  CALL FUNCTION 'ENQUEUE_E_TABLE'
+    EXPORTING
+      mode_rstable   = 'E'
+      tabname        = 'ZPPT_PAJT'
+      varkey         = lv_varkey
+      _wait          = abap_true
+    EXCEPTIONS
+      foreign_lock   = 1
+      system_failure = 2
+      OTHERS         = 3.
+  DATA(lv_lock) = xsdbool( sy-subrc = 0 ).
+
+  SELECT MAX( seq )
+    FROM zppt_pajt
+    INTO lv_seq
+    WHERE cprog EQ lc_cprog
+      AND ernam EQ sy-uname.
+
+  LOOP AT gt_outtab1 INTO wa_outtab.
+    ADD 1 TO lv_seq.
+    CLEAR lwa_pajt.
+    MOVE-CORRESPONDING wa_outtab TO lwa_pajt.
+    lwa_pajt-cprog = lc_cprog.
+    lwa_pajt-ernam = sy-uname.
+    lwa_pajt-seq   = lv_seq.
+    lwa_pajt-erdat = sy-datum.
+    lwa_pajt-erzet = sy-uzeit.
+    APPEND lwa_pajt TO lt_pajt.
+  ENDLOOP.
+
+  LOOP AT gt_outtab2 INTO wa_outtab.
+    ADD 1 TO lv_seq.
+    CLEAR lwa_pajt.
+    MOVE-CORRESPONDING wa_outtab TO lwa_pajt.
+    lwa_pajt-cprog = lc_cprog.
+    lwa_pajt-ernam = sy-uname.
+    lwa_pajt-seq   = lv_seq.
+    lwa_pajt-erdat = sy-datum.
+    lwa_pajt-erzet = sy-uzeit.
+    APPEND lwa_pajt TO lt_pajt.
+  ENDLOOP.
+
+  INSERT zppt_pajt FROM TABLE lt_pajt ACCEPTING DUPLICATE KEYS.
+  COMMIT WORK AND WAIT.
+
+  IF lv_lock = abap_true.
+    CALL FUNCTION 'DEQUEUE_E_TABLE'
+      EXPORTING
+        mode_rstable = 'E'
+        tabname      = 'ZPPT_PAJT'
+        varkey       = lv_varkey.
+  ENDIF.
+
+  FREE lt_pajt.
+
+ENDFORM.                    " ZF_GRAVA_SAIDA_LOTE
 * RDM 334163 - Fim
-
-------------------------
-
-Onde: logo depois de LOOP AT it_mchbcar ASSIGNING <fs_mchbcar>. e CLEAR lv_bdmng.
-
- RDM 334163 - Saldo vindo da leitura única
-    CLEAR lv_clabs.
-    READ TABLE lt_c_mchb ASSIGNING FIELD-SYMBOL(<ls_c_mchb>)
-         WITH TABLE KEY matnr = <fs_mchbcar>-matnr
-                        charg = <fs_mchbcar>-charg.
-    IF sy-subrc = 0.
-      lv_clabs = <ls_c_mchb>-clabs.
-    ENDIF.
-* RDM 334163 - Fim
-
------------------------
-
