@@ -1,114 +1,52 @@
-Onde: LZGFPP_PESQUISA_APLICACAOF01, em 6 leituras de it_caract_matnr que hoje percorrem a tabela do começo ao fim. As outras leituras dessa tabela nos mesmos FORMs já usam BINARY SEARCH.
+Onde: LZGFPP_PESQUISA_APLICACAOF01, FORM F_ATUALIZA_SALDO_ESTOQUES. São três pontos: um na declaração, um no início do FORM e um dentro do laço.
 
-       READ TABLE it_caract_matnr WITH KEY matnr = wa_marc-matnr
-                                            atnam = 'PDR_CONSULTA_METALURGICA'
-                                            BINARY SEARCH  "RDM 334163
-                                            INTO lwa_caract_matnr TRANSPORTING atwrt.
+---------
 
+Onde: logo depois de DATA lv_bdmng TYPE resb-bdmng.
 
-Onde: F01 → FORM F_ANALISA_APLICACAO_ESTOQUE, logo depois de END OF lit_log_pe.
-
-* RDM 334163 - Faixa de linhas do log de prova de erro por componente/lote
-  TYPES: BEGIN OF ty_idx_pe,
-           idnrk TYPE stpo-idnrk,
+* RDM 334163 - Saldo MCHB por material/lote lido uma única vez
+  TYPES: BEGIN OF ty_c_mchb,
            matnr TYPE mchb-matnr,
            charg TYPE mchb-charg,
-           de    TYPE i,
-           ate   TYPE i,
-         END OF ty_idx_pe.
-  DATA: lt_idx_pe TYPE HASHED TABLE OF ty_idx_pe WITH UNIQUE KEY idnrk matnr charg,
-        lv_ini_pe TYPE i.
+           clabs TYPE mchb-clabs,
+         END OF ty_c_mchb.
+  DATA: lt_c_mchb TYPE HASHED TABLE OF ty_c_mchb WITH UNIQUE KEY matnr charg,
+        lv_clabs  TYPE mchb-clabs.
 * RDM 334163 - Fim
 
+----------------
 
-Onde: mesmo FORM, logo depois de PERFORM f_consiste_certificado ...
+Onde: dentro do IF it_mchbcar IS NOT INITIAL., logo depois de SORT it_resb_aux BY matnr charg baugr bwart. e antes do ENDIF.
 
-* RDM 334163 - Lê só a faixa do componente/lote
-        READ TABLE lt_idx_pe ASSIGNING FIELD-SYMBOL(<ls_idx_pe>)
-             WITH TABLE KEY idnrk = wa_lista_tecnica-idnrk
-                            matnr = wa_mchbcar-matnr
-                            charg = wa_mchbcar-charg.
-        IF sy-subrc = 0.
-          LOOP AT lit_log_pe FROM <ls_idx_pe>-de TO <ls_idx_pe>-ate
-                             WHERE idnrk EQ wa_lista_tecnica-idnrk
-                               AND matnr EQ wa_mchbcar-matnr
-                               AND charg EQ wa_mchbcar-charg.
-            ...  "corpo original, sem alteração
-          ENDLOOP.
-        ENDIF.
-* RDM 334163 - Fim
-        IF sy-subrc IS INITIAL.
-
-
-Onde: mesmo FORM, no ELSE logo abaixo. É o trecho do comentário "Armazena todas as mensagens que foram geradas dentro da validação de prova de erro.
-
-          "Armazena todas as mensagens que foram geradas dentro da validação de prova de erro
-          lv_ini_pe = lines( lit_log_pe ) + 1.  "RDM 334163
-          LOOP AT it_result INTO wa_result FROM lv_index.
-            lit_log_pe-log = wa_result-log.
-            APPEND lit_log_pe.
-          ENDLOOP.
-          IF sy-subrc NE 0.
-            APPEND lit_log_pe.
-          ENDIF.
-* RDM 334163 - Registra a faixa gravada
-          INSERT VALUE #( idnrk = wa_lista_tecnica-idnrk
-                          matnr = wa_mchbcar-matnr
-                          charg = wa_mchbcar-charg
-                          de    = lv_ini_pe
-                          ate   = lines( lit_log_pe ) ) INTO TABLE lt_idx_pe.
-* RDM 334163 - Fim
-          CLEAR lit_log_pe.
-
-
-
-Onde: LZGFPP_PESQUISA_APLICACAOTOP, em BEGIN OF ty_prova_erro.
-
-    status    TYPE char03,
-    log_de    TYPE i,       "RDM 334163
-    log_ate   TYPE i,       "RDM 334163
-  END OF ty_prova_erro,
-
-
-Onde: LZGFPP_PESQUISA_APLICACAOTOP.
-
-* RDM 334163 - Acesso direto pela chave
-DATA it_prova_erro       TYPE HASHED TABLE OF ty_prova_erro
-                         WITH UNIQUE KEY werks matnr qualidade matnr_mp charg_mp.
-
-
-Onde: F01 → FORM F_CONSISTE_PROVA_ERRO. Os 3 APPEND lwa_prova_erro TO it_prova_erro. viram INSERT, porque tabela HASHED não aceita APPEND. O READ TABLE it_prova_erro ... WITH KEY não muda, porque já informa a chave completa.
-
-Gravação 1 – dentro de IF lit_log_pe[] IS NOT INITIAL., depois de lwa_prova_erro-status = 'NOK'.
-
-            lwa_prova_erro-status    = 'NOK'.
-* RDM 334163 - Faixa do log que será gravado no LOOP abaixo
-            lwa_prova_erro-log_de    = lines( it_prova_erro_log ) + 1.
-            lwa_prova_erro-log_ate   = lines( it_prova_erro_log ) + lines( lit_log_pe ).
-            INSERT lwa_prova_erro INTO TABLE it_prova_erro.
+* RDM 334163 - Lê a MCHB uma vez e soma por material/lote
+    SELECT matnr, werks, lgort, charg, clabs
+      FROM mchb
+      FOR ALL ENTRIES IN @it_mchbcar
+     WHERE matnr EQ @it_mchbcar-matnr
+       AND charg EQ @it_mchbcar-charg
+       AND clabs GT 0
+      INTO TABLE @DATA(lt_mchb_aux).
+    LOOP AT lt_mchb_aux ASSIGNING FIELD-SYMBOL(<ls_mchb_aux>).
+      COLLECT VALUE ty_c_mchb( matnr = <ls_mchb_aux>-matnr
+                               charg = <ls_mchb_aux>-charg
+                               clabs = <ls_mchb_aux>-clabs ) INTO lt_c_mchb.
+    ENDLOOP.
+    FREE lt_mchb_aux.
 * RDM 334163 - Fim
 
-Gravação 2 – no ELSE do mesmo IF, depois de lwa_prova_erro-status = 'OK'.
+------------------------
 
-            lwa_prova_erro-status    = 'OK'.
-            INSERT lwa_prova_erro INTO TABLE it_prova_erro.  "RDM 334163
+Onde: logo depois de LOOP AT it_mchbcar ASSIGNING <fs_mchbcar>. e CLEAR lv_bdmng.
 
-Gravação 3 – no tratamento de erro da ZQMF_MATXPE, depois do ENDCASE. e do p_matches = ''., em lwa_prova_erro-status = 'NOK'.
-
-
-          lwa_prova_erro-status    = 'NOK'.
-* RDM 334163 - Faixa do log (1 linha gravada logo abaixo)
-          lwa_prova_erro-log_de    = lines( it_prova_erro_log ) + 1.
-          lwa_prova_erro-log_ate   = lines( it_prova_erro_log ) + 1.
-          INSERT lwa_prova_erro INTO TABLE it_prova_erro.
+ RDM 334163 - Saldo vindo da leitura única
+    CLEAR lv_clabs.
+    READ TABLE lt_c_mchb ASSIGNING FIELD-SYMBOL(<ls_c_mchb>)
+         WITH TABLE KEY matnr = <fs_mchbcar>-matnr
+                        charg = <fs_mchbcar>-charg.
+    IF sy-subrc = 0.
+      lv_clabs = <ls_c_mchb>-clabs.
+    ENDIF.
 * RDM 334163 - Fim
 
-
-Onde: F01 → FORM F_CONSISTE_PROVA_ERRO, dentro de IF lwa_prova_erro-status = 'NOK'.
-
-          LOOP AT it_prova_erro_log INTO lwa_prova_erro_log
-                                    FROM lwa_prova_erro-log_de    "RDM 334163
-                                    TO   lwa_prova_erro-log_ate   "RDM 334163
-                                    WHERE werks     = p_werks
-
+-----------------------
 
