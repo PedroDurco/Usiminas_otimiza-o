@@ -41,6 +41,7 @@ Onde: F01 → F_ANALISA_APLICACAO_ESTOQUE, no FREE dos blocos 2 e 3.
 
 ----------------
 
+
 7C – Cópia do FORM
 
 Onde: copie, do include ZPPR_PROCESSA_NECESSIDADE_MF01, todo o trecho de FORM f_consiste_capabilidade até o ENDFORM. dele. Cole no final do F01, depois do ENDFORM do ZF_GRAVA_SAIDA_LOTE. Na cópia, faça os 8 ajustes abaixo. O MF01 não muda.
@@ -115,6 +116,24 @@ Ajuste 6 – LOOPs da EQP_T e da EQP_L
 
       LOOP AT pt_zppt_restr_eqp_l TRANSPORTING NO FIELDS USING KEY k_cap  "RDM 334163
                                                            WHERE lamin IN r_matnr_laminacao
+
+* RDM 334163 - Condição com OR movida para dentro do LOOP (exigência do USING KEY)
+      DATA(lv_achou_eqp_l) = abap_false.
+      LOOP AT pt_zppt_restr_eqp_l INTO DATA(ls_eqp_l) USING KEY k_cap
+        WHERE lamin        IN r_matnr_laminacao
+          AND tipo_prod    =  lv_matnr_produto_convert
+          ...                                       "demais condições sem alteração
+          AND diam_ext_max >= p_matnr_sd_diam_ext_maximo
+          AND lim_resist   >= p_matnr_sd_lim_res_minima
+          AND lim_resist   >= p_matnr_sd_lim_res_maxima.
+        IF ls_eqp_l-diam_int_min >= p_matnr_sd_diam_int_minimo OR
+           ls_eqp_l-diam_int_max <= p_matnr_sd_diam_int_maximo.
+          lv_achou_eqp_l = abap_true.
+          EXIT.
+        ENDIF.
+      ENDLOOP.
+      IF lv_achou_eqp_l = abap_false.
+* RDM 334163 - Fim
 
 
 
