@@ -1,101 +1,168 @@
-6A – Chamada na função
+7A – Declarações
 
-Onde: LZGFPP_PESQUISA_APLICACAOU01 (função ZPPF_PROCESSA_PACOTES_LOTE), no final, dentro de IF p_task IS INITIAL.
+Onde: LZGFPP_PESQUISA_APLICACAOTOP.
 
-  IF p_task IS INITIAL.
-* RDM 334163 - Gravação em uma única operação
-*    LOOP AT gt_outtab1 INTO wa_outtab.
-*      PERFORM zf_grava_saida.
-*    ENDLOOP.
-*
-*    LOOP AT gt_outtab2 INTO wa_outtab.
-*      PERFORM zf_grava_saida.
-*    ENDLOOP.
-    PERFORM zf_grava_saida_lote.
+Ponto 1 – logo abaixo das declarações do bloco 3
+
+* RDM 334163 - Chave secundária para as restrições da capabilidade
+TYPES: ty_t_restr_entr TYPE STANDARD TABLE OF zppt_restr_entr WITH DEFAULT KEY
+                         WITH NON-UNIQUE SORTED KEY k_cap COMPONENTS werks tipo_prod,
+       ty_t_restr_eqp_t TYPE STANDARD TABLE OF zppt_restr_eqp_t WITH DEFAULT KEY
+                         WITH NON-UNIQUE SORTED KEY k_cap COMPONENTS werks tipo_prod,
+       ty_t_restr_eqp_l TYPE STANDARD TABLE OF zppt_restr_eqp_l WITH DEFAULT KEY
+                         WITH NON-UNIQUE SORTED KEY k_cap COMPONENTS werks tipo_prod,
+       BEGIN OF ty_c_cli_lib,
+         werks TYPE zqmt_restr_cli-werks,
+         kunnr TYPE zqmt_restr_cli-kunnr,
+         matnr TYPE zqmt_restr_cli-matnr,
+       END OF ty_c_cli_lib.
+DATA: gt_c_cli_lib    TYPE HASHED TABLE OF ty_c_cli_lib WITH UNIQUE KEY werks kunnr,
+      gv_c_cli_lib_ok TYPE abap_bool.
+* RDM 334163 - Fim
+
+
+Ponto 2 – declarações das três tabelas de restrição
+
+DATA it_zppt_restr_entr  TYPE ty_t_restr_entr.   "RDM 334163
+...
+DATA it_zppt_restr_eqp_t TYPE ty_t_restr_eqp_t.  "RDM 334163
+DATA it_zppt_restr_eqp_l TYPE ty_t_restr_eqp_l.  "RDM 334163
+
+-----------------
+
+7B – Limpeza
+
+Onde: F01 → F_ANALISA_APLICACAO_ESTOQUE, no FREE dos blocos 2 e 3.
+
+  FREE: gt_c_t001l, gt_c_oest, gt_c_pncentro, gt_c_tpcert,
+        gt_c_sup, gt_c_rev, gt_c_clot, gt_c_cli_lib.
+  CLEAR gv_c_cli_lib_ok.
+
+
+----------------
+
+7C – Cópia do FORM
+
+Onde: copie, do include ZPPR_PROCESSA_NECESSIDADE_MF01, todo o trecho de FORM f_consiste_capabilidade até o ENDFORM. dele. Cole no final do F01, depois do ENDFORM do ZF_GRAVA_SAIDA_LOTE. Na cópia, faça os 8 ajustes abaixo. O MF01 não muda.
+
+Ajuste 1 – nome e assinatura
+
+Troque o nome para f_consiste_capabilidade_rdm.
+Remova do TABLES estas três linhas:
+
+                                     pt_zppt_restr_entr  STRUCTURE zppt_restr_entr
+                                     pt_zppt_restr_eqp_t STRUCTURE zppt_restr_eqp_t
+                                     pt_zppt_restr_eqp_l STRUCTURE zppt_restr_eqp_l
+
+Inclua no final do USING, logo depois de p_lista_tecnica TYPE ty_lista_tecnica:
+
+                                       pt_zppt_restr_entr  TYPE ty_t_restr_entr     "RDM 334163
+                                       pt_zppt_restr_eqp_t TYPE ty_t_restr_eqp_t    "RDM 334163
+                                       pt_zppt_restr_eqp_l TYPE ty_t_restr_eqp_l    "RDM 334163
+
+Ajuste 2 – declarações locais
+
+Onde: no DATA: do início da cópia, depois de rl_charg_laminacao LIKE LINE OF r_charg_laminacao. Troque o ponto final por vírgula e inclua:
+
+        wa_result                      LIKE LINE OF it_result,              "RDM 334163
+        lv_comprimento_vazio           TYPE zrnsdt_mchbcar-comprimento.     "RDM 334163
+
+
+Ajuste 3 – tabela de liberação de cliente, montada uma vez
+
+Onde: logo depois do DATA: do ajuste 2.
+
+* RDM 334163 - Primeira liberação (LIB) por centro + cliente, na ordem da tabela
+  IF gv_c_cli_lib_ok = abap_false.
+    LOOP AT pt_zqmt_restr_cli INTO DATA(ls_cli_lib) WHERE bloqueio = 'LIB'.
+      INSERT VALUE #( werks = ls_cli_lib-werks
+                      kunnr = ls_cli_lib-kunnr
+                      matnr = ls_cli_lib-matnr ) INTO TABLE gt_c_cli_lib.
+    ENDLOOP.
+    gv_c_cli_lib_ok = abap_true.
+  ENDIF.
 * RDM 334163 - Fim
 
 
 
-6B – Novo FORM
+Ajuste 4 – LOOPs da ZPPT_RESTR_ENTR (2 lugares)
 
-Onde: LZGFPP_PESQUISA_APLICACAOF01, logo depois do ENDFORM. " ZF_GRAVA_SAIDA. O FORM ZF_GRAVA_SAIDA original fica como está.
+Inclua USING KEY k_cap antes do WHERE e não mexa em mais nada:
+
+      LOOP AT pt_zppt_restr_entr INTO DATA(ls_zppt_restr_entr) USING KEY k_cap  "RDM 334163
+                                                                 WHERE lamin IN r_charg_laminacao
+
+      LOOP AT pt_zppt_restr_entr INTO ls_zppt_restr_entr USING KEY k_cap  "RDM 334163
+                                                           WHERE lamin IN r_charg_laminacao
+
+Ajuste 5 – comprimento
+
+Onde: no segundo LOOP da ZPPT_RESTR_ENTR, o do ramo ELSE.
+
+                                                           AND comprim_min <= wa_mchbcar-comprimento
+                                                           AND comprim_max >= wa_mchbcar-comprimento
 
 
-*&---------------------------------------------------------------------*
-*&      Form  ZF_GRAVA_SAIDA_LOTE
-*&---------------------------------------------------------------------*
-* RDM 334163 - Gravação da ZPPT_PAJT em uma única operação
-*----------------------------------------------------------------------*
-FORM zf_grava_saida_lote.
+* RDM 334163 - No original esta área (do ZPPR_PROCESSA_NECESSIDADE_MP) está sempre vazia
+                                                           AND comprim_min <= lv_comprimento_vazio
+                                                           AND comprim_max >= lv_comprimento_vazio
 
-  CONSTANTS lc_cprog TYPE zppt_pajt-cprog VALUE 'ZSUPPR_PESQUISA_APLICACAO_LOTE'.
+Ajuste 6 – LOOPs da EQP_T e da EQP_L
 
-  DATA: lt_pajt   TYPE STANDARD TABLE OF zppt_pajt,
-        lwa_pajt  TYPE zppt_pajt,
-        lv_seq    TYPE zppt_pajt-seq,
-        lv_varkey TYPE rstable-varkey.
+    LOOP AT pt_zppt_restr_eqp_t TRANSPORTING NO FIELDS USING KEY k_cap  "RDM 334163
+                                                         WHERE lamin IN r_matnr_laminacao
 
-  CHECK gt_outtab1[] IS NOT INITIAL OR gt_outtab2[] IS NOT INITIAL.
 
-* Bloqueia a numeração do usuário enquanto grava (evita SEQ repetido entre jobs)
-  lv_varkey(3)     = sy-mandt.
-  lv_varkey+3(40)  = lc_cprog.
-  lv_varkey+43(12) = sy-uname.
+      LOOP AT pt_zppt_restr_eqp_l TRANSPORTING NO FIELDS USING KEY k_cap  "RDM 334163
+                                                           WHERE lamin IN r_matnr_laminacao
 
-  CALL FUNCTION 'ENQUEUE_E_TABLE'
-    EXPORTING
-      mode_rstable   = 'E'
-      tabname        = 'ZPPT_PAJT'
-      varkey         = lv_varkey
-      _wait          = abap_true
-    EXCEPTIONS
-      foreign_lock   = 1
-      system_failure = 2
-      OTHERS         = 3.
-  DATA(lv_lock) = xsdbool( sy-subrc = 0 ).
 
-  SELECT MAX( seq )
-    FROM zppt_pajt
-    INTO lv_seq
-    WHERE cprog EQ lc_cprog
-      AND ernam EQ sy-uname.
 
-  LOOP AT gt_outtab1 INTO wa_outtab.
-    ADD 1 TO lv_seq.
-    CLEAR lwa_pajt.
-    MOVE-CORRESPONDING wa_outtab TO lwa_pajt.
-    lwa_pajt-cprog = lc_cprog.
-    lwa_pajt-ernam = sy-uname.
-    lwa_pajt-seq   = lv_seq.
-    lwa_pajt-erdat = sy-datum.
-    lwa_pajt-erzet = sy-uzeit.
-    APPEND lwa_pajt TO lt_pajt.
-  ENDLOOP.
+Os LOOPs da pt_zppt_restr_eqp_p não mudam.
 
-  LOOP AT gt_outtab2 INTO wa_outtab.
-    ADD 1 TO lv_seq.
-    CLEAR lwa_pajt.
-    MOVE-CORRESPONDING wa_outtab TO lwa_pajt.
-    lwa_pajt-cprog = lc_cprog.
-    lwa_pajt-ernam = sy-uname.
-    lwa_pajt-seq   = lv_seq.
-    lwa_pajt-erdat = sy-datum.
-    lwa_pajt-erzet = sy-uzeit.
-    APPEND lwa_pajt TO lt_pajt.
-  ENDLOOP.
+Ajuste 7 – leitura de liberação ('LIB')
 
-  INSERT zppt_pajt FROM TABLE lt_pajt ACCEPTING DUPLICATE KEYS.
-  COMMIT WORK AND WAIT.
+* RDM 334163 - Leitura direta da primeira liberação
+    READ TABLE gt_c_cli_lib ASSIGNING FIELD-SYMBOL(<ls_c_cli_lib>)
+         WITH TABLE KEY werks = p_wa_mchbcar-werks
+                        kunnr = ls_zrnppt_prev_capa-kunnr.
+    IF sy-subrc EQ 0 AND <ls_c_cli_lib>-matnr IS NOT INITIAL.
+      IF <ls_c_cli_lib>-matnr = p_wa_mchbcar-matnr.
+* RDM 334163 - Fim
 
-  IF lv_lock = abap_true.
-    CALL FUNCTION 'DEQUEUE_E_TABLE'
-      EXPORTING
-        mode_rstable = 'E'
-        tabname      = 'ZPPT_PAJT'
-        varkey       = lv_varkey.
-  ENDIF.
 
-  FREE lt_pajt.
+Ajuste 8 – SOLDA
 
-ENDFORM.                    " ZF_GRAVA_SAIDA_LOTE
+    READ TABLE it_mast INTO DATA(wa_mast) WITH KEY idnrk = p_wa_marc_matnr
+                                                   werks = p_wa_marc_werks
+                                                   BINARY SEARCH.  "RDM 334163
+    IF sy-subrc EQ 0.
+* RDM 334163 - No original a WA_MARC (do ZPPR_PROCESSA_NECESSIDADE_MP) está sempre
+*              vazia nesta chamada (falha de regra 6 - aguardando decisão funcional)
+      READ TABLE pt_caract_matnr WITH KEY matnr = space
+
+
+-------------------
+
+7D – Chamada
+
+Onde: F01 → F_ANALISA_APLICACAO_ESTOQUE, no PERFORM f_consiste_capabilidade(zppr_processa_necessidade_mp).
+
+* RDM 334163 - Cópia otimizada da capabilidade (original no ZPPR_PROCESSA_NECESSIDADE_MP)
+        PERFORM f_consiste_capabilidade_rdm
+          TABLES it_result
+                 it_zqmt_restr_equip
+                 it_zrnppt_prev_capa
+                 it_zqmt_restr_cli
+                 it_caract_matnr
+                 it_zppt_restr_eqp_p
+                 it_mast
+                 it_zqmt_partnumber
+          USING wa_marc-werks
+                ...   "mesmos parâmetros de hoje, até wa_lista_tecnica
+                wa_lista_tecnica
+                it_zppt_restr_entr
+                it_zppt_restr_eqp_t
+                it_zppt_restr_eqp_l
+          CHANGING lv_matches.
 * RDM 334163 - Fim
