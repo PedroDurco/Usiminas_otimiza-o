@@ -1,41 +1,38 @@
-Bloco 9 – Remoção das esperas fixas
-9A – Esperas no disparo das partes
+Bloco 10 – Leituras da ZPPT_OEST
+10A – Lotes pendentes no otimizador (F_SELECIONA_ESTOQUES)
 
-Onde: ZSUPPR_PESQUISA_APLICACAO_LF04 → FORM F_PROCESSA_APLICACAO, em 2 lugares:
+Onde: F01 → FORM F_SELECIONA_ESTOQUES, no comentário "Registro do otimizador que está pendente de aprovação não é relevante para aplicação e consulta.
 
-logo depois de IF lv_cont EQ p_qtdest.;
-logo depois de AT LAST.
+* RDM 334163 - Lê só material/lote e remove do estoque em uma única passada
+  TYPES: BEGIN OF ty_oest_mc,
+           matnr TYPE zppt_oest-matnr,
+           charg TYPE zppt_oest-charg,
+         END OF ty_oest_mc.
+  DATA lt_oest_mc TYPE HASHED TABLE OF ty_oest_mc WITH UNIQUE KEY matnr charg.
 
-* RDM 334163 - Espera fixa removida: os dados vão por parâmetro (tela) ou
-*              são confirmados no banco antes do job (background, ver 9B)
-*      DO 3 TIMES.
-*        WAIT UP TO 5 SECONDS.
-*      ENDDO.
+  SELECT DISTINCT matnr, charg
+    FROM zppt_oest
+   WHERE cprog EQ 'ZPPR_PROCESSA_NECESSIDADE_MP'
+    INTO TABLE @lt_oest_mc.
+  IF sy-subrc EQ 0.
+    LOOP AT it_mchbcar ASSIGNING FIELD-SYMBOL(<ls_mchb_oest>).
+      IF line_exists( lt_oest_mc[ matnr = <ls_mchb_oest>-matnr
+                                  charg = <ls_mchb_oest>-charg ] ).
+        DELETE it_mchbcar.
+      ENDIF.
+    ENDLOOP.
+  ENDIF.
+  FREE lt_oest_mc.
+* RDM 334163 - Fim
 
+-------------------------------
 
-9B – Confirmação dos parâmetros antes de criar o job
+10B – Aprovações pendentes no saldo (F_ATUALIZA_SALDO_ESTOQUES)
 
-Onde: mesmo FORM, em 2 lugares (no ramo ELSE de IF sy-batch IS INITIAL., no bloco normal e no AT LAST). Fica logo depois do ENDIF. que fecha o IF sy-subrc <> 0. do EXPORT ... TO DATABASE indx(zp) ID lv_bg_key., e antes de CALL FUNCTION 'JOB_OPEN'.
+Hoje: o programa lê todas as colunas, mas só usa centro, material, lote e saldo.
 
-        IF sy-subrc <> 0.
-          lv_msg = |[BG-JOB PAYLOAD ERRO] Key={ lv_bg_key } Subrc={ sy-subrc }|.
-          PERFORM f_log_exec USING lv_msg.
-          CONTINUE.
-        ENDIF.
+Onde: F01 → FORM F_ATUALIZA_SALDO_ESTOQUES, dentro de IF it_mchbcar IS NOT INITIAL.
 
-* RDM 334163 - Confirma no banco os parâmetros gravados na INDX antes de criar o job
-        CALL FUNCTION 'DB_COMMIT'.
-
-        CALL FUNCTION 'JOB_OPEN'
-
-9C – Espera no início do job
-
-Onde: programa ZSUPPR_PESQ_APL_BG_WRP, em START-OF-SELECTION, logo depois do MESSAGE lv_msg TYPE 'S'. de início.
-
-
-* RDM 334163 - Espera fixa removida: os parâmetros já estão confirmados no banco
-*              antes de o job ser criado (DB_COMMIT no LF04)
-*  DO 3 TIMES.
-*    WAIT UP TO 5 SECONDS.
-*  ENDDO.
-
+    SELECT werks, matnr, charg, clabs    "RDM 334163 - só os campos usados
+      FROM zppt_oest
+      INTO TABLE @DATA(tl_oest)
