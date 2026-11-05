@@ -1,355 +1,164 @@
-Bloco 11 – Descarte no primeiro vermelho
-11A – Declarações
+Bloco 12 – Regra dos 90 dias com parâmetro “over rolling”
+12P1 – Novo campo na tela
 
-Onde: F_ANALISA_APLICACAO_ESTOQUE, logo depois das declarações do bloco 4B (lt_idx_pe e lv_ini_pe).
+Programa: ZSUPPR_PESQUISA_APLICACAO_LOTE (programa principal)
+Onde: bloco 004 “Opções”, logo abaixo de PARAMETER p_rest AS CHECKBOX DEFAULT abap_true.
 
-* RDM 334163 - Controle do descarte no primeiro vermelho
-  DATA: lv_ini_comb TYPE i,          "1ª linha da IT_RESULT da combinação lote x SKU
-        lv_ini_chk  TYPE i,          "1ª linha gerada pela verificação atual
-        lv_descarta TYPE abap_bool.
-* RDM 334163 - Fim
+PARAMETER p_over  AS CHECKBOX DEFAULT space.   "RDM 334163 - Aproveitamento over rolling
 
-------------
-
-11B – Novo FORM
-
-Onde: final do F01.
-
-*&---------------------------------------------------------------------*
-*&      Form  F_DESCARTA_COMBINACAO
-*&---------------------------------------------------------------------*
-* RDM 334163 - Ao primeiro vermelho: mantém só a mensagem vermelha da
-*              combinação lote x SKU e remove as demais (amarelas anteriores)
-*----------------------------------------------------------------------*
-FORM f_descarta_combinacao USING p_ini_comb  TYPE i
-                                 p_ini_chk   TYPE i
-                                 p_forca_d   TYPE abap_bool
-                                 p_idnrk
-                                 p_matnr
-                                 p_charg
-                        CHANGING p_descarta  TYPE abap_bool.
-
-  DATA ls_vermelho LIKE LINE OF it_result.
-
-  CLEAR p_descarta.
-
-  "1ª mensagem vermelha gerada pela verificação (amarelo 'A' e linha sem log não contam)
-  LOOP AT it_result INTO DATA(ls_res) FROM p_ini_chk
-                    WHERE log   IS NOT INITIAL
-                      AND xloek <> 'A'.
-    ls_vermelho = ls_res.
-    p_descarta  = abap_true.
-    EXIT.
-  ENDLOOP.
-
-  CHECK p_descarta = abap_true.
-
-  "Dimensional passa a ser sempre vermelho (inclui divergência de tolerância)
-  IF p_forca_d = abap_true.
-    ls_vermelho-xloek = 'D'.
-  ENDIF.
-
-  "Remove todas as mensagens da combinação e grava só a vermelha
-  DELETE it_result FROM p_ini_comb.
-  APPEND ls_vermelho TO it_result.
-
-  PERFORM f_grava_it_log_aplicacao USING p_idnrk p_matnr p_charg.
-
-ENDFORM.                    " F_DESCARTA_COMBINACAO
+Texto da tela: SE38 → Ir para → Elementos de texto → Textos de seleção → P_OVER = “Aproveitamento over rolling”.
 
 --------------------------
 
-11C – Início da combinação
+12P2 – Envio do campo para as partes
 
-Onde: logo depois do bloco da sugestão da usina, ou seja, depois do ENDIF. que fecha IF r_ambos IS NOT INITIAL., e antes do comentário "Descartar se SKU for Rolo e Lote for diferente de Bobina ou Rolo.
+Include: ZSUPPR_PESQUISA_APLICACAO_LF04
+FORM: F_PROCESSA_APLICACAO
 
-          IF lv_lines EQ p_max_ln. "Nº máx. de Aplicações por Lotes
-            CONTINUE.
-          ENDIF.
-        ENDIF.
-* RDM 334163 - Início das mensagens desta combinação (linha da usina fica preservada)
-        lv_ini_comb = lines( it_result ) + 1.
-        "Descartar se SKU for Rolo e Lote for diferente de Bobina ou Rolo
+a) Chamada paralela, na execução pela tela (2 lugares): os dois CALL FUNCTION 'ZPPF_PROCESSA_PACOTES_LOTE' STARTING NEW TASK, o do bloco normal e o do AT LAST.
 
---------------------
+              i_task                = abap_true
+              i_over                = p_over          "RDM 334163
 
-11D – Dimensional
+----------------
 
-Onde: no PERFORM f_consiste_dimensional.
+b) Gravação dos parâmetros para o job, em background (2 lugares): os dois EXPORT ... TO DATABASE indx(zp) ID lv_bg_key.
 
-        lv_matches = 'X'.
-        "Consistencia Dimensional
-        lv_ini_chk = lines( it_result ) + 1.        "RDM 334163
-        PERFORM f_consiste_dimensional
-          USING wa_marc-werks
-                wa_marc-matnr
-                wa_mchbcar
-                lv_matnr_produto
-                lv_charg_produto
-          CHANGING lv_matches.
-* RDM 334163 - Descarte no primeiro vermelho (substitui o descarte condicionado a P_REST)
-*        IF lv_matches = 'I' AND p_rest IS INITIAL. "Não atende na Espessura ou Largura
-*          CONTINUE.
-*        ENDIF.
-        IF lines( it_result ) >= lv_ini_chk.
-          PERFORM f_descarta_combinacao USING lv_ini_comb lv_ini_chk abap_true
-                                              wa_lista_tecnica-idnrk wa_mchbcar-matnr wa_mchbcar-charg
-                                     CHANGING lv_descarta.
-          IF lv_descarta = abap_true.
-            CONTINUE.
-          ENDIF.
-        ENDIF.
-* RDM 334163 - Fim
+        EXPORT r_su          = r_su
+               p_over        = p_over               "RDM 334163
+               r_usi         = r_usi
 
-------------------------
-
-11E – Laminação
-
-Onde: no PERFORM f_consiste_laminacao.
-
-        "Consistência Laminação
-        lv_ini_chk = lines( it_result ) + 1.        "RDM 334163
-        PERFORM f_consiste_laminacao
-          USING wa_marc-werks
-                wa_marc-matnr
-                wa_mchbcar
-                lv_charg_laminacao
-                lv_matnr_laminacao
-          CHANGING lv_matches.
-* RDM 334163 - Descarte no primeiro vermelho (substitui o descarte condicionado a P_REST)
-*        IF lv_matches IS INITIAL AND p_rest IS INITIAL.
-*          PERFORM f_grava_it_log_aplicacao USING  wa_lista_tecnica-idnrk
-*                                                  wa_mchbcar-matnr
-*                                                  wa_mchbcar-charg.
-*          CONTINUE.
-*        ENDIF.
-        IF lines( it_result ) >= lv_ini_chk.
-          PERFORM f_descarta_combinacao USING lv_ini_comb lv_ini_chk abap_false
-                                              wa_lista_tecnica-idnrk wa_mchbcar-matnr wa_mchbcar-charg
-                                     CHANGING lv_descarta.
-          IF lv_descarta = abap_true.
-            CONTINUE.
-          ENDIF.
-        ENDIF.
-* RDM 334163 - Fim
-
-----------------------------------------
-
-11F – Superfície
-
-Onde: no PERFORM f_consiste_superficie, logo depois do comentário " RDM 318586.
+-----------------
 
 
-        " RDM 318586
-        lv_ini_chk = lines( it_result ) + 1.        "RDM 334163
-        PERFORM f_consiste_superficie USING wa_marc-werks
-                 wa_marc-matnr
-                 wa_mchbcar
-           CHANGING lv_matches.
-* RDM 334163 - Descarte no primeiro vermelho (mantém só a mensagem vermelha)
-*        IF lv_matches IS INITIAL.
-*          PERFORM f_grava_it_log_aplicacao USING  wa_lista_tecnica-idnrk
-*                                                  wa_mchbcar-matnr
-*                                                  wa_mchbcar-charg.
-*          CONTINUE.
-*        ENDIF.
-        IF lines( it_result ) >= lv_ini_chk.
-          PERFORM f_descarta_combinacao USING lv_ini_comb lv_ini_chk abap_false
-                                              wa_lista_tecnica-idnrk wa_mchbcar-matnr wa_mchbcar-charg
-                                     CHANGING lv_descarta.
-          IF lv_descarta = abap_true.
-            CONTINUE.
-          ENDIF.
-        ENDIF.
-* RDM 334163 - Fim
+12P3 – Job em background
 
--------------------------------------
+Programa: ZSUPPR_PESQ_APL_BG_WRP
 
-11G – Tratamento químico
+a) Declaração: junto das declarações lv_su, lv_usi etc.
 
-Onde: no PERFORM f_consiste_mm_pos_tratamento, logo depois do comentário "Consistência Tratamento Quimico.
+DATA lv_over TYPE xfeld.                           "RDM 334163
 
-        "Consistência Tratamento Quimico
-        lv_ini_chk = lines( it_result ) + 1.        "RDM 334163
-        PERFORM f_consiste_mm_pos_tratamento
-          USING wa_marc-werks
-                wa_marc-matnr
-                wa_mchbcar
-       CHANGING lv_charg_mm_pos_tratamento
-                lv_matnr_mm_pos_tratamento
-                lv_matches.
-* RDM 334163 - Descarte no primeiro vermelho (substitui o descarte condicionado a P_REST)
-*        IF lv_matches IS INITIAL AND p_rest IS INITIAL.
-*          PERFORM f_grava_it_log_aplicacao USING  wa_lista_tecnica-idnrk
-*                                                  wa_mchbcar-matnr
-*                                                  wa_mchbcar-charg.
-*          CONTINUE.
-*        ENDIF.
-        IF lines( it_result ) >= lv_ini_chk.
-          PERFORM f_descarta_combinacao USING lv_ini_comb lv_ini_chk abap_false
-                                              wa_lista_tecnica-idnrk wa_mchbcar-matnr wa_mchbcar-charg
-                                     CHANGING lv_descarta.
-          IF lv_descarta = abap_true.
-            CONTINUE.
-          ENDIF.
-        ENDIF.
-* RDM 334163 - Fim
+b) Leitura dos parâmetros: no IMPORT ... FROM DATABASE indx(zp) ID p_key.
 
-----------------------------
+  IMPORT r_su          = lv_su
+         p_over        = lv_over                   "RDM 334163
 
-11H – Oleamento e peça de segurança
+c) Chamada da função: no CALL FUNCTION 'ZPPF_PROCESSA_PACOTES_LOTE'.
 
-Onde: em volta do bloco IF ( wa_mchbcar-matnr(2) NE '34' AND wa_mchbcar-matnr(2) NE '54' )., que contém as consistências de oleamento e de peça de segurança. Esse trecho não tem IF de descarte original para comentar. Só entram duas inclusões.
+      i_task                = abap_false
+      i_over                = lv_over              "RDM 334163
 
-Inclusão 1 – antes do IF:
+------------------
 
+12P4 – Interface da função
 
-        lv_ini_chk = lines( it_result ) + 1.        "RDM 334163
-        IF ( wa_mchbcar-matnr(2) NE '34' AND
-             wa_mchbcar-matnr(2) NE '54' ).
+SE37 → ZPPF_PROCESSA_PACOTES_LOTE → aba Importação: criar um novo parâmetro:
 
-
-Inclusão 2 – depois do ENDIF que fecha esse IF: é o ENDIF. que vem logo depois do CLEAR wa_result. da mensagem 'Divergência peça segurança >>', imediatamente antes do comentário "Consistência Revestimento.
-
-
-          ENDIF.
-
-        ENDIF.
-
-* RDM 334163 - Descarte no primeiro vermelho (oleamento / peça segurança)
-        IF lines( it_result ) >= lv_ini_chk.
-          PERFORM f_descarta_combinacao USING lv_ini_comb lv_ini_chk abap_false
-                                              wa_lista_tecnica-idnrk wa_mchbcar-matnr wa_mchbcar-charg
-                                     CHANGING lv_descarta.
-          IF lv_descarta = abap_true.
-            CONTINUE.
-          ENDIF.
-        ENDIF.
-* RDM 334163 - Fim
-
-        "Consistência Revestimento
-
+Parâmetro	Tipo	Tipo de referência	Opcional	Valor proposto
+I_OVER	TYPE	XFELD	Sim	(vazio)
 
 ---------------------
 
-11I – Revestimento
+12P5 – Grupo de funções
 
-Onde: no PERFORM f_consiste_revestimento.
+a) TOP (LZGFPP_PESQUISA_APLICACAOTOP), junto das declarações dos blocos anteriores:
 
-        "Consistência Revestimento
-        lv_ini_chk = lines( it_result ) + 1.        "RDM 334163
-        PERFORM f_consiste_revestimento
-          USING wa_marc-werks
-                wa_marc-matnr
-                wa_mchbcar
-          CHANGING lv_matches.
-* RDM 334163 - Descarte no primeiro vermelho (substitui o descarte condicionado a P_REST)
-*        IF lv_matches IS INITIAL AND p_rest IS INITIAL.
-*          PERFORM f_grava_it_log_aplicacao USING  wa_lista_tecnica-idnrk
-*                                                  wa_mchbcar-matnr
-*                                                  wa_mchbcar-charg.
-*          CONTINUE.
-*        ENDIF.
-        IF lines( it_result ) >= lv_ini_chk.
-          PERFORM f_descarta_combinacao USING lv_ini_comb lv_ini_chk abap_false
-                                              wa_lista_tecnica-idnrk wa_mchbcar-matnr wa_mchbcar-charg
-                                     CHANGING lv_descarta.
-          IF lv_descarta = abap_true.
-            CONTINUE.
-          ENDIF.
+DATA gv_over TYPE xfeld.                           "RDM 334163 - Aproveitamento over rolling
+
+b) Função (LZGFPP_PESQUISA_APLICACAOU01), logo depois de p_task = i_task.:
+
+  gv_over = i_over.                                "RDM 334163
+
+
+---------------
+
+12A – Data na seleção do estoque
+
+Onde: no início do FORM, logo depois do REFRESH: it_mchbcar, ....
+Buscar: FROM zrnsdt_mchbcar
+
+  SELECT matnr werks lgort charg espessura largura clabs
+         ersda                                       "RDM 334163 - data p/ regra dos 90 dias
+    INTO CORRESPONDING FIELDS OF TABLE it_mchbcar
+    FROM zrnsdt_mchbcar
+    WHERE charg IN pr_charg
+      AND werks IN pr_ewrks       "12/05/2026 - Nic-Labs - Filtro Centro Estoque
+      AND lgort IN pr_elgrt       "12/05/2026 - Nic-Labs - Filtro Depósito Estoque
+      AND clabs GE gv_estoque_minimo.
+
+-------------
+12B – Data no estoque especial
+
+Onde: logo abaixo do 12A, no comentário "estoque especial.
+Buscar: FROM mslb
+
+  "estoque especial
+  SELECT matnr werks charg sobkz lifnr lblab
+         ersda                                       "RDM 334163 - data p/ regra dos 90 dias
+    INTO CORRESPONDING FIELDS OF TABLE it_mslb
+    FROM mslb
+   WHERE charg IN pr_charg
+     AND werks IN pr_ewrks       "12/05/2026 - Nic-Labs - Filtro Centro Estoque
+     AND lblab GE gv_estoque_minimo.
+
+-------------
+
+12C – Regra dos 90 dias (só com o campo “over rolling” marcado)
+
+Onde: depois do bloco da ZPPT_OEST (bloco 10A).
+Buscar: "Regra para ESTOQUE ACABADOU OU SEMI-ACABADO:
+
+  "Regra para ESTOQUE ACABADOU OU SEMI-ACABADO:
+  "considerar somente lotes estocados a mais de 90 dias.
+* RDM 334163 - Regra corrigida: a data não era lida e o filtro de faixas (com "E")
+*              não separava nenhum material. Decisão funcional: vale para todas as
+*              faixas e somente para aproveitamento de over rolling (campo P_OVER).
+*  lit_mchbcar[] = it_mchbcar[].
+*  DELETE lit_mchbcar WHERE matnr BETWEEN '12000000' AND '12999999' AND
+*                           matnr BETWEEN '10000000' AND '11999999' AND "RDM 271193
+*                           matnr BETWEEN '71000000' AND '71999999'. "RDM 271193
+*
+*  IF lit_mchbcar[] IS NOT INITIAL.
+*    lv_data_estoque = sy-datum - 90.
+*    LOOP AT lit_mchbcar ASSIGNING <fs_mchbcar>.
+*      IF <fs_mchbcar>-ersda > lv_data_estoque.
+*        DELETE it_mchbcar WHERE matnr EQ <fs_mchbcar>-matnr AND
+*                                charg EQ <fs_mchbcar>-charg.
+*      ENDIF.
+*    ENDLOOP.
+*  ENDIF.
+
+  TYPES: BEGIN OF ty_lote_novo,
+           matnr TYPE zrnsdt_mchbcar-matnr,
+           charg TYPE zrnsdt_mchbcar-charg,
+         END OF ty_lote_novo.
+  DATA lt_lote_novo TYPE HASHED TABLE OF ty_lote_novo WITH UNIQUE KEY matnr charg.
+
+  IF gv_over = abap_true.
+
+    lv_data_estoque = sy-datum - 90.
+
+    "Lotes com algum estoque mais novo que 90 dias (mesmo critério do original)
+    LOOP AT it_mchbcar ASSIGNING <fs_mchbcar> WHERE ersda > lv_data_estoque.
+      INSERT VALUE #( matnr = <fs_mchbcar>-matnr
+                      charg = <fs_mchbcar>-charg ) INTO TABLE lt_lote_novo.
+    ENDLOOP.
+
+    "Remove esses lotes do estoque em uma única passada
+    IF lt_lote_novo IS NOT INITIAL.
+      LOOP AT it_mchbcar ASSIGNING <fs_mchbcar>.
+        IF line_exists( lt_lote_novo[ matnr = <fs_mchbcar>-matnr
+                                      charg = <fs_mchbcar>-charg ] ).
+          DELETE it_mchbcar.
         ENDIF.
+      ENDLOOP.
+    ENDIF.
+    FREE lt_lote_novo.
+
+  ENDIF.
 * RDM 334163 - Fim
 
------------------------------
 
-
-11J – Qualidade
-
-Onde: em volta do IF que chama PERFORM f_consiste_qualidade. Esse trecho não tem IF de descarte original para comentar.
-
-        lv_ini_chk = lines( it_result ) + 1.        "RDM 334163
-        IF
-           lv_consistencia_cdqua  IS NOT INITIAL OR
-         ( lv_tipo_certificado = 'UN' OR "(quando certificado for de Usina)
-           lv_tipo_certificado = 'NT' ). "(quando for 'Não Enviar Certificado')   "RDM 268040
-
-          PERFORM f_consiste_qualidade
-            USING wa_marc-werks
-                  wa_marc-matnr
-                  wa_mchbcar
-                  lv_charg_qualidade
-                  lv_matnr_qualidade
-                  lv_consistencia_cdqua
-            CHANGING lv_matches.
-        ENDIF.
-
-* RDM 334163 - Descarte no primeiro vermelho ("Qualidade restrita"; "Exige certificado de Usina" é amarelo e não descarta)
-        IF lines( it_result ) >= lv_ini_chk.
-          PERFORM f_descarta_combinacao USING lv_ini_comb lv_ini_chk abap_false
-                                              wa_lista_tecnica-idnrk wa_mchbcar-matnr wa_mchbcar-charg
-                                     CHANGING lv_descarta.
-          IF lv_descarta = abap_true.
-            CONTINUE.
-          ENDIF.
-        ENDIF.
-* RDM 334163 - Fim
-
-        " Consistência certificado
-
--------------------------------
-
-11K – Prova de erro
-
-São duas alterações.
-
-Alteração 1 – início: logo depois do PERFORM f_consiste_certificado ... e antes do READ TABLE lt_idx_pe incluído no bloco 4B.
-
-                                             lv_matnr_qualidade.
-        lv_ini_chk = lines( it_result ) + 1.        "RDM 334163 - descarte no 1º vermelho
-* RDM 334163 - Lê só a faixa do componente/lote
-        READ TABLE lt_idx_pe ASSIGNING FIELD-SYMBOL(<ls_idx_pe>)
-
-Alteração 2 – fim: logo antes do comentário "Consistência Reserva OP.
-
-* RDM 334163 - Descarte no primeiro vermelho (substitui o descarte condicionado a P_REST)
-*        IF lv_matches IS INITIAL AND p_rest IS INITIAL.
-*          PERFORM f_grava_it_log_aplicacao USING  wa_lista_tecnica-idnrk
-*                                                  wa_mchbcar-matnr
-*                                                  wa_mchbcar-charg.
-*          CONTINUE.
-*        ENDIF.
-        IF lines( it_result ) >= lv_ini_chk.
-          PERFORM f_descarta_combinacao USING lv_ini_comb lv_ini_chk abap_false
-                                              wa_lista_tecnica-idnrk wa_mchbcar-matnr wa_mchbcar-charg
-                                     CHANGING lv_descarta.
-          IF lv_descarta = abap_true.
-            CONTINUE.
-          ENDIF.
-        ENDIF.
-* RDM 334163 - Fim
-
-        "Consistência Reserva OP
-
--------------------------
-
-11L – Depósito
-
-Onde: no PERFORM f_consiste_deposito, logo depois da consistência de reserva. Esse trecho não tem IF de descarte original para comentar.
-
-        "Consistência depósito
-        lv_ini_chk = lines( it_result ) + 1.        "RDM 334163
-        PERFORM f_consiste_deposito USING wa_marc-werks
-                                          wa_marc-matnr
-                                          wa_mchbcar.
-* RDM 334163 - Descarte no primeiro vermelho
-        IF lines( it_result ) >= lv_ini_chk.
-          PERFORM f_descarta_combinacao USING lv_ini_comb lv_ini_chk abap_false
-                                              wa_lista_tecnica-idnrk wa_mchbcar-matnr wa_mchbcar-charg
-                                     CHANGING lv_descarta.
-          IF lv_descarta = abap_true.
-            CONTINUE.
-          ENDIF.
-        ENDIF.
-* RDM 334163 - Fim
 
 
